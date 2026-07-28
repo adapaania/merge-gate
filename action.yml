@@ -1,0 +1,60 @@
+name: Merge Gate
+description: Evaluate a pull request against repository-owned merge requirements.
+
+inputs:
+  github-token:
+    description: Read-only GitHub token for PR, contents, checks, and statuses.
+    required: true
+  policy-path:
+    description: Policy file fetched from the pull request's base commit.
+    required: false
+    default: .merge-gate/policy.toml
+  ci-result:
+    description: Result of the target repository's prerequisite CI job.
+    required: false
+    default: unknown
+  judge-mode:
+    description: "Independent judge mode: offline or live."
+    required: false
+    default: offline
+  anthropic-api-key:
+    description: Optional provider key used only when judge-mode is live.
+    required: false
+
+outputs:
+  action:
+    description: Final advisory action.
+    value: ${{ steps.merge-gate.outputs.action }}
+  reason:
+    description: Human-readable reason for the action.
+    value: ${{ steps.merge-gate.outputs.reason }}
+
+runs:
+  using: composite
+  steps:
+    - name: Set up Python
+      uses: actions/setup-python@v6
+      with:
+        python-version: "3.12"
+
+    - name: Install action dependencies
+      shell: bash
+      run: python -m pip install --disable-pip-version-check -r "$MERGE_GATE_REQUIREMENTS"
+      env:
+        MERGE_GATE_REQUIREMENTS: ${{ github.action_path }}/requirements-action.txt
+
+    - name: Evaluate pull request
+      id: merge-gate
+      shell: bash
+      run: >-
+        python "$MERGE_GATE_ACTION_PATH/github_action.py"
+        --policy-path "$MERGE_GATE_POLICY_PATH"
+        --ci-result "$MERGE_GATE_CI_RESULT"
+        --judge-mode "$MERGE_GATE_JUDGE_MODE"
+      env:
+        MERGE_GATE_ACTION_PATH: ${{ github.action_path }}
+        MERGE_GATE_POLICY_PATH: ${{ inputs.policy-path }}
+        MERGE_GATE_CI_RESULT: ${{ inputs.ci-result }}
+        MERGE_GATE_JUDGE_MODE: ${{ inputs.judge-mode }}
+        GITHUB_TOKEN: ${{ inputs.github-token }}
+        ANTHROPIC_API_KEY: ${{ inputs.anthropic-api-key }}
