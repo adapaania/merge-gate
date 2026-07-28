@@ -1,6 +1,6 @@
 [project]
 name = "ClearLedger"
-version = 1
+version = 2
 default_action = "human_review"
 default_reason = "Unclassified application changes require a ClearLedger owner."
 
@@ -73,3 +73,13 @@ paths = [
   "README.md",
 ]
 path_match = "all"
+
+[[exceptions]]
+id = "EXC-01"
+rule_id = "SECRET-01"
+owner = "platform-team"
+expires_on = 2027-01-01
+reason = "*.env.example is a committed placeholder template, not a secret. Known false positive in SECRET-01's .env.* glob, tracked here instead of narrowing the glob so real .env variants still block."
+paths = [
+  ".env.example",
+]

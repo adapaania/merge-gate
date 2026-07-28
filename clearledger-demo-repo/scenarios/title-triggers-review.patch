@@ -1,0 +1,14 @@
+diff --git a/docs/operations.md b/docs/operations.md
+index 2f077b0..31e79df 100644
+--- a/docs/operations.md
++++ b/docs/operations.md
+@@ -13,3 +13,9 @@ Every production payout must retain:
+ 
+ Changes to payout limits, role boundaries, settlement precision, or audit
+ requirements must receive the owner review declared in the project policy.
++
++## Support runbook wording
++
++When a support ticket mentions a stuck transfer, confirm the requester's
++role before escalating. This section only documents how support should talk
++about an existing payout limit; it does not change any control.

@@ -154,6 +154,87 @@ class ClearLedgerContractTests(unittest.TestCase):
         self.assertEqual(result.final.action, GateAction.HUMAN_REVIEW)
         self.assertIn("SEC-01", result.matched_project_rules)
 
+    def test_env_example_is_waived_to_the_default_not_blocked(self) -> None:
+        # SECRET-01's ".env.*" glob also matches the harmless ".env.example"
+        # template. EXC-01 waives it, so the result is the project default
+        # (human_review), not a block and not an auto-merge candidate.
+        result = analyze_decision(
+            decision(
+                title="Document required environment variables",
+                files_touched=[".env.example"],
+                diff_excerpt=self._patch("secret-glob-false-positive.patch"),
+            ),
+            project_policy=self.policy,
+        )
+        self.assertEqual(result.final.action, GateAction.HUMAN_REVIEW)
+        self.assertIn("SECRET-01", result.matched_project_rules)
+
+    def test_committed_secret_key_is_still_blocked(self) -> None:
+        # Contrast with the exception above: this path isn't covered by
+        # EXC-01, so the real SECRET-01 block still applies in full.
+        result = analyze_decision(
+            decision(
+                title="Add payout signing key for the new HSM integration",
+                files_touched=["secrets/payout_signing_key.pem"],
+                diff_excerpt=self._patch("committed-secret-key.patch"),
+            ),
+            project_policy=self.policy,
+        )
+        self.assertEqual(result.final.action, GateAction.BLOCK)
+        self.assertIn("SECRET-01", result.matched_project_rules)
+
+    def test_title_alone_can_escalate_a_docs_only_change(self) -> None:
+        # PAY-01 matches on the title term "payout limit" independent of any
+        # path match, so it outranks DOC-01's path-only match even though
+        # the diff itself only touches docs/.
+        result = analyze_decision(
+            decision(
+                title="Document payout limit escalation steps for support",
+                files_touched=["docs/operations.md"],
+                diff_excerpt=self._patch("title-triggers-review.patch"),
+            ),
+            project_policy=self.policy,
+        )
+        self.assertEqual(result.final.action, GateAction.HUMAN_REVIEW)
+        self.assertIn("PAY-01", result.matched_project_rules)
+        self.assertIn("DOC-01", result.matched_project_rules)
+
+    def test_injected_instruction_in_diff_does_not_relax_the_result(self) -> None:
+        result = analyze_decision(
+            decision(
+                title="Clarify settlement rounding documentation",
+                files_touched=["src/clearledger/payouts.py"],
+                diff_excerpt=self._patch("prompt-injection-in-docstring.patch"),
+            ),
+            project_policy=self.policy,
+        )
+        self.assertEqual(result.final.action, GateAction.HUMAN_REVIEW)
+        self.assertIn("PAY-01", result.matched_project_rules)
+
+    def test_dependency_change_requires_platform_review(self) -> None:
+        result = analyze_decision(
+            decision(
+                title="Add an HTTP client dependency for the outbound webhook integration",
+                files_touched=["pyproject.toml"],
+                diff_excerpt=self._patch("add-dependency.patch"),
+            ),
+            project_policy=self.policy,
+        )
+        self.assertEqual(result.final.action, GateAction.HUMAN_REVIEW)
+        self.assertEqual(result.matched_project_rules, ("OPS-01",))
+
+    def test_skipped_test_is_detected_like_a_deleted_one(self) -> None:
+        result = analyze_decision(
+            decision(
+                title="Skip flaky authorization test",
+                files_touched=["tests/test_authorization.py"],
+                diff_excerpt=self._patch("skip-authorization-test.patch"),
+            ),
+            project_policy=self.policy,
+        )
+        self.assertEqual(result.final.action, GateAction.HUMAN_REVIEW)
+        self.assertIn("SEC-01", result.matched_project_rules)
+
 
 if __name__ == "__main__":
     unittest.main()

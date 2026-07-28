@@ -1,0 +1,14 @@
+diff --git a/pyproject.toml b/pyproject.toml
+index 3ef0bd8..7c2d61b 100644
+--- a/pyproject.toml
++++ b/pyproject.toml
+@@ -7,6 +7,9 @@ name = "clearledger-demo"
+ version = "0.1.0"
+ description = "A production-shaped payout control service for the Merge Gate demo."
+ requires-python = ">=3.12"
++dependencies = [
++  "httpx>=0.28",
++]
+ 
+ [tool.setuptools.packages.find]
+ where = ["src"]
