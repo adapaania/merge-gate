@@ -215,7 +215,8 @@ def render_live_pr_summary(snapshot: GitHubPRSnapshot) -> None:
                 color=ci_color,
             )
             st.badge(
-                f"{len(snapshot.files)} changed files",
+                f"{len(snapshot.files)} changed "
+                f"{'file' if len(snapshot.files) == 1 else 'files'}",
                 icon=":material/description:",
                 color="gray",
             )
