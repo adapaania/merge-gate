@@ -262,25 +262,32 @@ def render_live_pr_summary(snapshot: GitHubPRSnapshot) -> None:
 def render_project_requirements(
     project_result: PolicyResult | None,
     matched_rule_ids: tuple[str, ...],
+    *,
+    matched_organization_rules: tuple[str, ...] = (),
+    required_teams: tuple[str, ...] = (),
 ) -> None:
     if project_result is None:
         return
     with st.container(border=True):
-        st.subheader("Matched project requirements", anchor=False)
-        if matched_rule_ids:
+        st.subheader("Matched policy", anchor=False)
+        tagged_rules = [f"org:{rule_id}" for rule_id in matched_organization_rules] + [
+            f"repo:{rule_id}" for rule_id in matched_rule_ids
+        ]
+        if tagged_rules:
             with st.container(horizontal=True, gap="small"):
-                for rule_id in matched_rule_ids:
-                    st.badge(
-                        rule_id,
-                        icon=":material/policy:",
-                        color="blue",
-                    )
+                for rule_id in tagged_rules:
+                    st.badge(rule_id, icon=":material/policy:", color="blue")
         else:
-            st.badge("Project default", icon=":material/policy:", color="gray")
+            st.badge("Policy default", icon=":material/policy:", color="gray")
         st.write(project_result.reason)
+        if required_teams:
+            st.caption(
+                "Required reviewer teams: " + ", ".join(required_teams)
+            )
         st.caption(
-            "Fetched from `.merge-gate/policy.toml` at the pull request's "
-            "immutable base commit."
+            "Fetched from `.merge-gate/policy.toml` (and the organization "
+            "baseline, when configured) at the pull request's immutable base "
+            "commit."
         )
 
 
@@ -418,7 +425,12 @@ def render_decision_flow(
 
     render_final_call(analysis)
     render_evidence_summary(decision, judge_confidence=analysis.judgment.confidence)
-    render_project_requirements(analysis.project_policy, analysis.matched_project_rules)
+    render_project_requirements(
+        analysis.project_policy,
+        analysis.matched_project_rules,
+        matched_organization_rules=analysis.matched_organization_rules,
+        required_teams=analysis.required_teams,
+    )
 
     with st.container(border=True):
         st.subheader("Why this decision", anchor=False)

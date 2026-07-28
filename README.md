@@ -13,7 +13,9 @@ pasting a URL.
 [Open the public dashboard](https://merge-gate-shzqgrdowxhuply6fhsykf.streamlit.app/)
 or follow the [live demo runbook](docs/live-demo.md). The longer
 [product and evaluation design](docs/product-and-evaluation-design.md) explains
-the problem, users, safety model, rollout, and evaluation strategy.
+the problem, users, safety model, rollout, and evaluation strategy. The
+[policy guide](docs/policy-guide.md) is the schema reference and connection
+guide for writing an organization baseline and a repository overlay policy.
 
 ## The problem
 
@@ -86,6 +88,9 @@ cause a safe fallback to human review.
   and commit statuses
 - reusable composite GitHub Action triggered automatically by target PRs
 - project-owned TOML requirements fetched from the immutable base commit
+- an optional organization-baseline policy layer that a repository overlay
+  can tighten but never weaken, with required reviewer teams, time-boxed
+  exceptions, and a policy source/version/hash recorded on every decision
 - GitHub job summaries containing the outcome, evidence, and tool/function trace
 - a sanitized tool/function trace with per-step timing
 - explicit unknowns for evidence GitHub cannot prove
@@ -140,6 +145,11 @@ The action uses read-only `contents`, `pull-requests`, `checks`, and `statuses`
 permissions. A block fails the action job; human review emits a warning; a
 candidate emits a notice. The connected repository must define an
 `ANTHROPIC_API_KEY` Actions secret.
+
+A repository can also opt into a shared organization baseline by adding
+`org-policy-repo` (and optionally `org-policy-ref`/`org-policy-path`) to the
+`with:` block above — see the [policy guide](docs/policy-guide.md). Leaving
+it unset runs exactly as shown, with the repository's own policy alone.
 
 ## Live decision dashboard
 

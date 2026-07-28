@@ -21,6 +21,7 @@ from github_pr import (
     fetch_github_text_file,
 )
 from llm_judge import JudgeUnavailable
+from policy_schema import LoadedPolicy, parse_policy_document
 from pr_rendering import (
     render_decision_flow,
     render_evidence_summary,
@@ -28,20 +29,24 @@ from pr_rendering import (
     render_live_pr_summary,
     render_project_requirements,
 )
-from project_policy import ProjectPolicy, evaluate_project_policy, parse_project_policy
+from project_policy import evaluate_project_policy
 
 LIVE_DEMO_PR_URL = os.getenv(
     "MERGE_GATE_DEMO_PR_URL",
     "https://github.com/adapaania/clearledger-demo/pull/1",
 )
+ORG_POLICY_REPO = os.getenv("MERGE_GATE_ORG_POLICY_REPO", "")
+ORG_POLICY_REF = os.getenv("MERGE_GATE_ORG_POLICY_REF", "main")
+ORG_POLICY_PATH = os.getenv("MERGE_GATE_ORG_POLICY_PATH", ".merge-gate/organization.toml")
 
 
 @st.cache_data(ttl="3m", max_entries=8, show_spinner=False)
 def cached_github_project(
     url: str,
     refresh_version: int,
-) -> tuple[GitHubPRSnapshot, ProjectPolicy, TraceStep]:
-    """Read a live PR and immutable project policy with bounded API caching."""
+) -> tuple[GitHubPRSnapshot, LoadedPolicy, LoadedPolicy | None, tuple[TraceStep, ...]]:
+    """Read a live PR, its immutable project policy, and an optional shared
+    organization baseline, with bounded API caching."""
 
     _ = refresh_version
     token = os.getenv("GITHUB_TOKEN")
@@ -52,14 +57,25 @@ def cached_github_project(
         path=".merge-gate/policy.toml",
         token=token,
     )
-    project_policy = parse_project_policy(
-        policy_text,
-        source=(
-            f"{snapshot.repository}:.merge-gate/policy.toml@"
-            f"{snapshot.base_sha[:12]}"
-        ),
-    )
-    return snapshot, project_policy, policy_trace
+    project_source = f"{snapshot.repository}:.merge-gate/policy.toml@{snapshot.base_sha[:12]}"
+    project_policy = parse_policy_document(policy_text, section="project", source=project_source)
+
+    organization_policy: LoadedPolicy | None = None
+    trace_steps: tuple[TraceStep, ...] = (policy_trace,)
+    if ORG_POLICY_REPO:
+        org_text, org_trace = fetch_github_text_file(
+            ORG_POLICY_REPO,
+            ref=ORG_POLICY_REF,
+            path=ORG_POLICY_PATH,
+            token=token,
+        )
+        org_source = f"{ORG_POLICY_REPO}:{ORG_POLICY_PATH}@{ORG_POLICY_REF}"
+        organization_policy = parse_policy_document(
+            org_text, section="organization", source=org_source
+        )
+        trace_steps = trace_steps + (org_trace,)
+
+    return snapshot, project_policy, organization_policy, trace_steps
 
 
 st.title("Merge Gate", anchor=False)
@@ -90,9 +106,11 @@ with st.container(border=True):
 live_slot = st.container()
 try:
     with live_slot.skeleton(height=180):
-        live_snapshot, project_policy, policy_trace = cached_github_project(
-            LIVE_DEMO_PR_URL,
-            st.session_state["live_pr_refresh_version"],
+        live_snapshot, loaded_project_policy, loaded_org_policy, policy_trace_steps = (
+            cached_github_project(
+                LIVE_DEMO_PR_URL,
+                st.session_state["live_pr_refresh_version"],
+            )
         )
 except (GitHubFetchError, ValueError) as exc:
     live_slot.error(
@@ -107,7 +125,7 @@ except (GitHubFetchError, ValueError) as exc:
     st.stop()
 
 render_live_pr_summary(live_snapshot)
-source_trace = live_snapshot.trace + (policy_trace,)
+source_trace = live_snapshot.trace + policy_trace_steps
 decision = build_decision_from_github(live_snapshot)
 selected_id = decision.id
 feedback_scope = "Live GitHub PR"
@@ -137,7 +155,18 @@ if run_gate:
             live_result = analyze_decision(
                 decision,
                 judge_mode="live",
-                project_policy=project_policy,
+                project_policy=loaded_project_policy.document,
+                project_policy_source=loaded_project_policy.source,
+                project_policy_hash=loaded_project_policy.content_hash,
+                organization_policy=(
+                    loaded_org_policy.document if loaded_org_policy else None
+                ),
+                organization_policy_source=(
+                    loaded_org_policy.source if loaded_org_policy else None
+                ),
+                organization_policy_hash=(
+                    loaded_org_policy.content_hash if loaded_org_policy else None
+                ),
                 allow_offline_fallback=False,
             )
         except JudgeUnavailable as exc:
@@ -166,7 +195,7 @@ st.caption(decision_context)
 
 if analysis is None:
     render_evidence_summary(decision, judge_confidence=None)
-    project_preview = evaluate_project_policy(project_policy, decision)
+    project_preview = evaluate_project_policy(loaded_project_policy.document, decision)
     render_project_requirements(project_preview.result, project_preview.matched_rule_ids)
     st.info(
         "GitHub evidence and project requirements are ready. Select "

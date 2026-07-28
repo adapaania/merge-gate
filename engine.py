@@ -8,8 +8,10 @@ from time import perf_counter
 from judgment import JudgeResult
 from llm_judge import JudgeUnavailable, get_judgment
 from model import Decision
+from organization_policy import OrganizationPolicy, evaluate_organization_policy
 from policies import GateAction, PolicyResult, baseline_policy_results, raw_evidence_result
 from policy_retrieval import PolicyMatch, retrieve_policies
+from policy_schema import PolicySourceRef, combine_document_results
 from project_policy import (
     ProjectPolicy,
     evaluate_project_policy,
@@ -31,6 +33,10 @@ class AnalysisResult:
     final: PolicyResult
     project_policy: PolicyResult | None = None
     matched_project_rules: tuple[str, ...] = ()
+    matched_organization_rules: tuple[str, ...] = ()
+    required_teams: tuple[str, ...] = ()
+    policy_requires_ci: bool = False
+    policy_sources: tuple[PolicySourceRef, ...] = ()
     judge_warning: str | None = None
     trace: tuple[TraceStep, ...] = ()
 
@@ -100,14 +106,31 @@ def analyze_decision(
     *,
     judge_mode: str = "offline",
     project_policy: ProjectPolicy | None = None,
+    organization_policy: OrganizationPolicy | None = None,
+    project_policy_source: str | None = None,
+    project_policy_hash: str | None = None,
+    organization_policy_source: str | None = None,
+    organization_policy_hash: str | None = None,
     allow_offline_fallback: bool = True,
 ) -> AnalysisResult:
-    """Run retrieval → judge → verify → hard checks → conservative composition."""
+    """Run retrieval → judge → verify → hard checks → conservative composition.
+
+    ``project_policy`` and ``organization_policy`` are independent: either,
+    both, or neither may be supplied. When both are present, the repository
+    overlay can only tighten the organization baseline, never weaken it — the
+    effective result is always at least as restrictive as each layer alone.
+    The optional ``*_source``/``*_hash`` arguments are provenance only; they
+    do not affect the decision, only what gets recorded about it.
+    """
 
     trace: list[TraceStep] = []
 
     project_result: PolicyResult | None = None
     matched_project_rules: tuple[str, ...] = ()
+    matched_organization_rules: tuple[str, ...] = ()
+    required_teams: tuple[str, ...] = ()
+    policy_requires_ci = False
+    policy_sources: list[PolicySourceRef] = []
     if project_policy is None:
         started_at = perf_counter()
         policies = retrieve_policies(decision)
@@ -125,10 +148,59 @@ def analyze_decision(
             )
         )
     else:
+        organization_result: PolicyResult | None = None
+        if organization_policy is not None:
+            started_at = perf_counter()
+            organization_evaluation = evaluate_organization_policy(organization_policy, decision)
+            organization_result = organization_evaluation.result
+            matched_organization_rules = organization_evaluation.matched_rule_ids
+            required_teams = tuple(
+                dict.fromkeys(required_teams + organization_evaluation.required_teams)
+            )
+            policy_requires_ci = policy_requires_ci or organization_evaluation.requires_ci
+            policy_sources.append(
+                PolicySourceRef(
+                    scope="organization",
+                    name=organization_policy.name,
+                    version=organization_policy.version,
+                    content_hash=organization_policy_hash,
+                    source=organization_policy_source or "organization policy",
+                )
+            )
+            trace.append(
+                TraceStep(
+                    kind="function",
+                    phase="Policy",
+                    name="evaluate_organization_policy",
+                    summary=(
+                        f"Applied {organization_policy.name} baseline; "
+                        f"result was {organization_result.action.value}."
+                    ),
+                    duration_ms=_duration_ms(started_at),
+                    details={
+                        "organization": organization_policy.name,
+                        "version": organization_policy.version,
+                        "matched_rules": ", ".join(matched_organization_rules) or "default",
+                        "action": organization_result.action.value,
+                    },
+                )
+            )
+
         started_at = perf_counter()
         project_evaluation = evaluate_project_policy(project_policy, decision)
         project_result = project_evaluation.result
         matched_project_rules = project_evaluation.matched_rule_ids
+        required_teams = tuple(dict.fromkeys(required_teams + project_evaluation.required_teams))
+        policy_requires_ci = policy_requires_ci or project_evaluation.requires_ci
+        policy_sources.append(
+            PolicySourceRef(
+                scope="project",
+                name=project_policy.name,
+                version=project_policy.version,
+                content_hash=project_policy_hash,
+                source=project_policy_source or "project policy",
+            )
+        )
         trace.append(
             TraceStep(
                 kind="function",
@@ -147,6 +219,23 @@ def analyze_decision(
                 },
             )
         )
+
+        if organization_result is not None:
+            started_at = perf_counter()
+            project_result = combine_document_results([organization_result, project_result])
+            trace.append(
+                TraceStep(
+                    kind="function",
+                    phase="Policy",
+                    name="combine_policy_layers",
+                    summary=(
+                        "Combined organization and project policy; effective result was "
+                        f"{project_result.action.value}."
+                    ),
+                    duration_ms=_duration_ms(started_at),
+                    details={"action": project_result.action.value},
+                )
+            )
 
         started_at = perf_counter()
         policies = project_policy_matches(project_policy, decision)
@@ -256,6 +345,10 @@ def analyze_decision(
         final=final,
         project_policy=project_result,
         matched_project_rules=matched_project_rules,
+        matched_organization_rules=matched_organization_rules,
+        required_teams=required_teams,
+        policy_requires_ci=policy_requires_ci,
+        policy_sources=tuple(policy_sources),
         judge_warning=warning,
         trace=tuple(trace),
     )

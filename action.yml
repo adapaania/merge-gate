@@ -13,6 +13,20 @@ inputs:
     description: Result of the target repository's prerequisite CI job.
     required: false
     default: unknown
+  org-policy-repo:
+    description: >-
+      Optional owner/name of a repository holding a shared organization
+      baseline policy. Leave unset to run with the repository policy alone.
+    required: false
+    default: ""
+  org-policy-ref:
+    description: Branch, tag, or SHA to read the organization policy from.
+    required: false
+    default: main
+  org-policy-path:
+    description: Organization policy path within org-policy-repo.
+    required: false
+    default: .merge-gate/organization.toml
   anthropic-api-key:
     description: Provider key required for the live Claude risk judgment.
     required: true
@@ -46,9 +60,15 @@ runs:
         python "$MERGE_GATE_ACTION_PATH/github_action.py"
         --policy-path "$MERGE_GATE_POLICY_PATH"
         --ci-result "$MERGE_GATE_CI_RESULT"
+        --org-policy-repo "$MERGE_GATE_ORG_POLICY_REPO"
+        --org-policy-ref "$MERGE_GATE_ORG_POLICY_REF"
+        --org-policy-path "$MERGE_GATE_ORG_POLICY_PATH"
       env:
         MERGE_GATE_ACTION_PATH: ${{ github.action_path }}
         MERGE_GATE_POLICY_PATH: ${{ inputs.policy-path }}
         MERGE_GATE_CI_RESULT: ${{ inputs.ci-result }}
+        MERGE_GATE_ORG_POLICY_REPO: ${{ inputs.org-policy-repo }}
+        MERGE_GATE_ORG_POLICY_REF: ${{ inputs.org-policy-ref }}
+        MERGE_GATE_ORG_POLICY_PATH: ${{ inputs.org-policy-path }}
         GITHUB_TOKEN: ${{ inputs.github-token }}
         ANTHROPIC_API_KEY: ${{ inputs.anthropic-api-key }}

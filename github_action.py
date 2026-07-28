@@ -19,7 +19,7 @@ from github_pr import (
 )
 from model import Decision
 from policies import GateAction
-from project_policy import parse_project_policy
+from policy_schema import parse_policy_document
 
 
 CI_RESULT = {
@@ -93,7 +93,16 @@ def build_job_summary(
         GateAction.HUMAN_REVIEW: "⚠️",
         GateAction.BLOCK: "⛔",
     }[result.final.action]
-    matched_rules = ", ".join(result.matched_project_rules) or "project default"
+    matched_rules = ", ".join(
+        [f"org:{rule_id}" for rule_id in result.matched_organization_rules]
+        + [f"repo:{rule_id}" for rule_id in result.matched_project_rules]
+    ) or "no rule matched (policy default applied)"
+    required_teams = ", ".join(result.required_teams) or "none"
+    policy_rows = "\n".join(
+        f"| {source.scope} | {_markdown(source.name)} | {source.version} | "
+        f"`{_markdown(source.content_hash or 'unavailable')}` |"
+        for source in result.policy_sources
+    ) or "| — | no policy configured | — | — |"
     changed_files = "\n".join(
         f"- `{_markdown(file.filename)}`"
         for file in snapshot.files[:20]
@@ -116,12 +125,19 @@ def build_job_summary(
 
 - **PR:** [{_markdown(snapshot.repository)} #{snapshot.pr_number}]({_markdown(snapshot.html_url)})
 - **Head SHA:** `{_markdown(snapshot.head_sha)}`
-- **Project requirements:** {_markdown(matched_rules)}
+- **Matched policy:** {_markdown(matched_rules)}
+- **Required reviewer teams:** {_markdown(required_teams)}
 - **Judge:** {_markdown(result.judgment.source)}
 
 ## Decision
 
 {_markdown(result.final.reason)}
+
+## Effective policy
+
+| Scope | Name | Version | Content hash |
+|---|---|---:|---|
+{policy_rows}
 
 | Evidence | Value |
 |---|---|
@@ -132,6 +148,7 @@ def build_job_summary(
 | Reversibility | {_markdown(result.decision.reversible)} |
 | Incident linkage | {_markdown(result.decision.touches_incident_code)} |
 | Evidence citations verified | {result.verification.checked_claims} |
+| Matched policy requires CI | {_markdown(result.policy_requires_ci)} |
 
 <details>
 <summary>Changed files</summary>
@@ -201,20 +218,47 @@ def run(args: argparse.Namespace) -> int:
         path=args.policy_path,
         token=token,
     )
-    project_policy = parse_project_policy(
+    project_source = f"{snapshot.repository}:{args.policy_path}@{snapshot.base_sha[:12]}"
+    loaded_project_policy = parse_policy_document(
         policy_text,
-        source=(
-            f"{snapshot.repository}:{args.policy_path}@"
-            f"{snapshot.base_sha[:12]}"
-        ),
+        section="project",
+        source=project_source,
     )
+
+    organization_policy = None
+    organization_source = None
+    organization_hash = None
+    extra_trace: tuple[TraceStep, ...] = ()
+    if args.org_policy_repo:
+        org_ref = args.org_policy_ref or "main"
+        org_text, org_trace = fetch_github_text_file(
+            args.org_policy_repo,
+            ref=org_ref,
+            path=args.org_policy_path,
+            token=token,
+        )
+        organization_source = f"{args.org_policy_repo}:{args.org_policy_path}@{org_ref}"
+        loaded_org_policy = parse_policy_document(
+            org_text,
+            section="organization",
+            source=organization_source,
+        )
+        organization_policy = loaded_org_policy.document
+        organization_hash = loaded_org_policy.content_hash
+        extra_trace = (org_trace,)
+
     result = analyze_decision(
         decision,
         judge_mode="live",
-        project_policy=project_policy,
+        project_policy=loaded_project_policy.document,
+        project_policy_source=project_source,
+        project_policy_hash=loaded_project_policy.content_hash,
+        organization_policy=organization_policy,
+        organization_policy_source=organization_source,
+        organization_policy_hash=organization_hash,
         allow_offline_fallback=False,
     )
-    trace = snapshot.trace + (ci_trace, policy_trace) + result.trace
+    trace = snapshot.trace + (ci_trace, policy_trace) + extra_trace + result.trace
     return _publish_result(
         result,
         build_job_summary(snapshot, result, trace),
@@ -233,6 +277,24 @@ def build_parser() -> argparse.ArgumentParser:
         choices=sorted(CI_RESULT),
         default="unknown",
         help="Result of the target repository's prerequisite test job.",
+    )
+    parser.add_argument(
+        "--org-policy-repo",
+        default="",
+        help=(
+            "Optional owner/name of a repository holding a shared organization "
+            "baseline policy. Leave unset to run with the repository policy alone."
+        ),
+    )
+    parser.add_argument(
+        "--org-policy-ref",
+        default="main",
+        help="Branch, tag, or SHA to read the organization policy from.",
+    )
+    parser.add_argument(
+        "--org-policy-path",
+        default=".merge-gate/organization.toml",
+        help="Organization policy path within --org-policy-repo.",
     )
     return parser
 
