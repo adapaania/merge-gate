@@ -154,12 +154,14 @@ it unset runs exactly as shown, with the repository's own policy alone.
 ## Live decision dashboard
 
 The dashboard has one primary page, **Live decision**, and it opens directly
-to the public ClearLedger proof PR — no pasted URL, no source picker. It
-displays the observed ClearLedger and Merge Gate checks, links to the real
-workflow run, reads `.merge-gate/policy.toml` at the immutable base commit,
-and, once you select **Run Merge Gate**, recomputes the detailed advisory
-decision below. **Refresh from GitHub** bypasses a three-minute cache so the
-audience can see a deliberate live update.
+to a public ClearLedger PR — no pasted URL. A **PR #** field lets you switch
+between the scenario PRs on that one connected repository; it is not a
+generic URL box (that stays on the dev-only replay page). It displays the
+observed ClearLedger and Merge Gate checks, links to the real workflow run,
+reads `.merge-gate/policy.toml` at the immutable base commit, and, once you
+select **Run Merge Gate**, recomputes the detailed advisory decision below.
+**Refresh from GitHub** bypasses a three-minute cache so the audience can see
+a deliberate live update.
 
 Fetching and judging are deliberately separate:
 

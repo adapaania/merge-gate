@@ -118,6 +118,43 @@ class StreamlitSmokeTests(unittest.TestCase):
             ],
         )
 
+    def test_pr_number_field_switches_which_pr_is_fetched(self) -> None:
+        calls: list[str] = []
+
+        def fetch_pr_by_number(url: str, token=None):
+            calls.append(url)
+            pr_number = int(url.rsplit("/", 1)[-1])
+            return snapshot().model_copy(
+                update={"pr_number": pr_number, "html_url": url}
+            )
+
+        with (
+            patch("github_pr.fetch_github_pr", side_effect=fetch_pr_by_number),
+            patch(
+                "github_pr.fetch_github_text_file",
+                return_value=(
+                    POLICY,
+                    TraceStep(
+                        kind="tool",
+                        phase="GitHub",
+                        name="get_file",
+                        summary="Read .merge-gate/policy.toml",
+                        duration_ms=1.0,
+                    ),
+                ),
+            ),
+            patch("engine.get_judgment", side_effect=_offline_judgment),
+        ):
+            app = AppTest.from_file(
+                "app_pages/live_decision.py", default_timeout=20
+            ).run()
+            self.assertEqual(len(app.exception), 0)
+            self.assertTrue(calls[-1].endswith("/pull/1"))
+
+            app.number_input(key="live_pr_number").set_value(5).run()
+            self.assertEqual(len(app.exception), 0)
+            self.assertTrue(calls[-1].endswith("/pull/5"))
+
     def test_system_evaluation_page_renders_without_exceptions(self) -> None:
         app = AppTest.from_file(
             "app_pages/system_evaluation.py", default_timeout=20

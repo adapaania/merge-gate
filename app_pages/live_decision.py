@@ -1,8 +1,10 @@
 """Merge Gate's primary page: one live pull request, one decision.
 
-This is the default view. It fetches the public ClearLedger proof PR directly
-from GitHub, then runs Merge Gate on demand. There is no dataset or PR-source
-picker here — replay and evaluation fixtures live elsewhere.
+This is the default view. It fetches a public ClearLedger pull request
+directly from GitHub, then runs Merge Gate on demand. A PR-number field lets
+you switch between the several scenario PRs on the one connected demo
+repository — it is not a generic "paste any URL" control; that stays on the
+dev-only replay page.
 """
 
 from __future__ import annotations
@@ -31,10 +33,15 @@ from pr_rendering import (
 )
 from project_policy import evaluate_project_policy
 
-LIVE_DEMO_PR_URL = os.getenv(
+DEFAULT_DEMO_PR_URL = os.getenv(
     "MERGE_GATE_DEMO_PR_URL",
     "https://github.com/adapaania/clearledger-demo/pull/1",
 )
+DEMO_REPO_URL, _, _default_pr_number = DEFAULT_DEMO_PR_URL.rpartition("/pull/")
+try:
+    DEFAULT_PR_NUMBER = int(_default_pr_number)
+except ValueError:
+    DEFAULT_PR_NUMBER = 1
 ORG_POLICY_REPO = os.getenv("MERGE_GATE_ORG_POLICY_REPO", "")
 ORG_POLICY_REF = os.getenv("MERGE_GATE_ORG_POLICY_REF", "main")
 ORG_POLICY_PATH = os.getenv("MERGE_GATE_ORG_POLICY_PATH", ".merge-gate/organization.toml")
@@ -85,18 +92,27 @@ st.session_state.setdefault("live_pr_refresh_version", 0)
 with st.container(border=True):
     st.subheader("Live PR", anchor=False)
     st.caption(
-        "Public ClearLedger pull request · fetched directly from GitHub · "
-        "no pasted URL"
+        f"`{DEMO_REPO_URL.removeprefix('https://github.com/')}` · fetched "
+        "directly from GitHub · no pasted URL"
     )
     with st.container(horizontal=True, vertical_alignment="center"):
+        pr_number = st.number_input(
+            "PR #",
+            min_value=1,
+            step=1,
+            value=DEFAULT_PR_NUMBER,
+            key="live_pr_number",
+            width=100,
+        )
+        live_demo_pr_url = f"{DEMO_REPO_URL}/pull/{int(pr_number)}"
         refresh_live = st.button(
             "Refresh from GitHub",
             icon=":material/refresh:",
             key="refresh_live_demo",
         )
         st.link_button(
-            "Open proof PR",
-            LIVE_DEMO_PR_URL,
+            "Open this PR",
+            live_demo_pr_url,
             icon=":material/open_in_new:",
             type="tertiary",
         )
@@ -108,7 +124,7 @@ try:
     with live_slot.skeleton(height=180):
         live_snapshot, loaded_project_policy, loaded_org_policy, policy_trace_steps = (
             cached_github_project(
-                LIVE_DEMO_PR_URL,
+                live_demo_pr_url,
                 st.session_state["live_pr_refresh_version"],
             )
         )
@@ -118,8 +134,8 @@ except (GitHubFetchError, ValueError) as exc:
         icon=":material/cloud_off:",
     )
     live_slot.link_button(
-        "Open the live PR on GitHub",
-        LIVE_DEMO_PR_URL,
+        "Open this PR on GitHub",
+        live_demo_pr_url,
         icon=":material/open_in_new:",
     )
     st.stop()
