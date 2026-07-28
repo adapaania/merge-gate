@@ -94,7 +94,8 @@ cause a safe fallback to human review.
 - critical recall, escalation precision, autonomous coverage, misses, and false
   escalations
 - batch evaluation for the actual live judge
-- Streamlit decision, evidence, evaluation, methodology, and feedback views
+- a single-page Streamlit live decision view with evidence, policy, and
+  feedback, plus a separate system-evaluation page
 - regression tests covering mocked GitHub ingestion, project-policy precedence,
   action summaries, ClearLedger scenarios, and a full Streamlit smoke render
 
@@ -140,27 +141,34 @@ permissions. A block fails the action job; human review emits a warning; a
 candidate emits a notice. The connected repository must define an
 `ANTHROPIC_API_KEY` Actions secret.
 
-## Live and replay dashboard
+## Live decision dashboard
 
-The default **Live PR** view fetches the public ClearLedger proof PR directly
-from GitHub. It displays the observed ClearLedger and Merge Gate checks, links
-to the real workflow run, reads `.merge-gate/policy.toml` at the immutable base
-commit, and recomputes the detailed advisory decision. **Refresh from GitHub**
-bypasses a three-minute cache so the audience can see a deliberate live update.
-
-For another pull request, select **Replay another PR**, paste its GitHub URL,
-and select **Fetch PR**. Replay is for troubleshooting and evaluation—not the
-product's normal trigger.
+The dashboard has one primary page, **Live decision**, and it opens directly
+to the public ClearLedger proof PR — no pasted URL, no source picker. It
+displays the observed ClearLedger and Merge Gate checks, links to the real
+workflow run, reads `.merge-gate/policy.toml` at the immutable base commit,
+and, once you select **Run Merge Gate**, recomputes the detailed advisory
+decision below. **Refresh from GitHub** bypasses a three-minute cache so the
+audience can see a deliberate live update.
 
 Fetching and judging are deliberately separate:
 
-1. **Fetch PR** reads GitHub evidence only.
-2. **Analyze with Claude** executes policy matching, the live judge, citation
-   verification, deterministic controls, and final composition.
+1. The page load reads GitHub evidence only.
+2. **Run Merge Gate** executes policy matching, the live semantic judge,
+   citation verification, deterministic controls, and final composition.
 3. **Show tools and functions** displays a sanitized trace of those steps.
 
 The app identifies the exact head SHA it evaluated. It does not comment,
 approve, close, or merge the PR.
+
+A second page, **System evaluation**, reports aggregate policy metrics over
+the labeled fixture sets described below — no GitHub access, so it's safe to
+explore without triggering a live model call.
+
+Replaying an arbitrary GitHub PR is a developer-only capability for
+troubleshooting, not a normal demo path. It's hidden from navigation unless
+`MERGE_GATE_DEV_MODE=1` is set, in which case a **Replay PR (dev)** page
+appears.
 
 ## Local setup
 
@@ -239,7 +247,8 @@ rather than implying that the deterministic result is an AI-model result.
 5. Open the job summary and narrate the GitHub reads, project-policy match,
    judge, verifier, hard controls, and composer.
 6. Repeat with the failed-precision PR to show a deterministic block.
-7. Use Streamlit only afterward to show evaluation metrics or replay a run.
+7. Use the Streamlit **Live decision** page only afterward to show the same
+   decision interactively, and **System evaluation** for aggregate metrics.
 
 ## Repository map
 

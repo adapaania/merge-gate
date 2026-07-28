@@ -81,9 +81,10 @@ GitHub job summary with evidence and execution trace
    - `PAY-01` and `SEC-01` matched;
    - final action is human review;
    - the tool/function table explains the entire run.
-9. Open the Streamlit dashboard's default **Live PR** view and show the same
-   GitHub checks, immutable project requirements, recomputed decision, and
-   tool/function trace without pasting a URL.
+9. Open the Streamlit dashboard's default **Live decision** page and show the
+   same GitHub checks, immutable project requirements, recomputed decision
+   (after selecting **Run Merge Gate**), and tool/function trace without
+   pasting a URL.
 10. Repeat with `break-currency-precision.patch`:
    - tests fail;
    - Merge Gate still runs because the job uses `if: always()`;
