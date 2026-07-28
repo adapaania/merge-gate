@@ -335,14 +335,15 @@ def render_live_pr_summary(snapshot: GitHubPRSnapshot) -> None:
                 (
                     check
                     for check in visible_checks
-                    if check.name == "Merge Gate" and check.details_url
+                    if check.name == "Merge Gate"
+                    and getattr(check, "details_url", None)
                 ),
                 None,
             )
             if merge_gate_check is not None:
                 st.link_button(
                     "Open the actual Merge Gate check",
-                    merge_gate_check.details_url,
+                    getattr(merge_gate_check, "details_url"),
                     icon=":material/open_in_new:",
                     type="tertiary",
                 )
