@@ -10,6 +10,11 @@ dashboard opens a public proof PR by default so the same live evidence, project
 requirements, decision pipeline, and evaluation can be presented without
 pasting a URL.
 
+[Open the public dashboard](https://merge-gate-shzqgrdowxhuply6fhsykf.streamlit.app/)
+or follow the [live demo runbook](docs/live-demo.md). The longer
+[product and evaluation design](docs/product-and-evaluation-design.md) explains
+the problem, users, safety model, rollout, and evaluation strategy.
+
 ## The problem
 
 Codex and Claude can review a pull request from a prompt. That is useful, but it
@@ -251,15 +256,16 @@ judgment.py               judge schemas and offline fixture
 verifier.py               citation verification
 evaluation.py             policy and bucket metrics
 evaluate_judge.py         batch live-model evaluation
+run.py                    deterministic baseline evaluation
 model.py                  validated PR-evidence schema
 data/                     stress test, challenge set, local feedback
 knowledge/                versioned repository-policy fixture
 tests/                    regression suite
-demo-pr-repo/             same-repository live-PR sandbox and scenario patches
 clearledger-demo-repo/    standalone connected-project source and PR scenarios
 .github/                   required CI, CODEOWNERS, and PR template
-PROPOSED_SOLUTION.md      detailed product and evaluation design
-REALTIME_PR_SCHEME.md      staged live-ingestion and webhook architecture
+docs/live-demo.md         public two-repository demo runbook
+docs/product-and-evaluation-design.md
+                          detailed product and evaluation design
 ```
 
 ## Known limits

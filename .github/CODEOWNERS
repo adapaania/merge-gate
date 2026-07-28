@@ -7,11 +7,6 @@
 /action.yml @adapaania
 /knowledge/ @adapaania
 
-# Live-PR sandbox security and pricing boundaries
-/demo-pr-repo/src/auth.py @adapaania
-/demo-pr-repo/tests/test_auth.py @adapaania
-/demo-pr-repo/src/pricing.py @adapaania
-
 # Connected project template and its repository-owned requirements
 /clearledger-demo-repo/.merge-gate/ @adapaania
 /clearledger-demo-repo/.github/ @adapaania

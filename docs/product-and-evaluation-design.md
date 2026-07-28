@@ -1,4 +1,4 @@
-# Merge Gate — Proposed Solution
+# Merge Gate product and evaluation design
 
 ## Executive summary
 

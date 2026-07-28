@@ -1,4 +1,4 @@
-# Automatic two-repository demo
+# Live demo runbook
 
 ## Repositories
 
