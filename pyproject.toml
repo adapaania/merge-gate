@@ -25,6 +25,29 @@ dev = [
   "ruff>=0.9",
 ]
 
+[tool.setuptools]
+py-modules = [
+  "engine",
+  "evaluate_judge",
+  "evaluation",
+  "execution_trace",
+  "feedback",
+  "github_action",
+  "github_pr",
+  "judgment",
+  "llm_judge",
+  "model",
+  "plots",
+  "policies",
+  "policy_retrieval",
+  "project_policy",
+  "run",
+  "scorer",
+  "streamlit_app",
+  "ui",
+  "verifier",
+]
+
 [tool.ruff]
 line-length = 100
 target-version = "py312"
