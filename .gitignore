@@ -1,0 +1,24 @@
+# Secrets
+.env
+.streamlit/secrets.toml
+
+# Python
+.venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Local tooling
+.DS_Store
+.idea/
+.vscode/
+.claude/
+.agents/
+AGENTS.md
+
+# Runtime artifacts
+data/feedback.jsonl
+data/structured_judgments.json
+results/
