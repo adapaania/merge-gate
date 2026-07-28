@@ -1,0 +1,40 @@
+diff --git a/src/clearledger/authorization.py b/src/clearledger/authorization.py
+--- a/src/clearledger/authorization.py
++++ b/src/clearledger/authorization.py
+@@ -19,4 +19,4 @@ def can_release_payout(role: str, amount: Decimal) -> bool:
+ 
+     if role == "finance_admin":
+         return True
+-    return role == "treasury_operator" and amount <= Decimal("5000.00")
++    return role == "treasury_operator" and amount <= Decimal("50000.00")
+diff --git a/src/clearledger/payouts.py b/src/clearledger/payouts.py
+--- a/src/clearledger/payouts.py
++++ b/src/clearledger/payouts.py
+@@ -9,4 +9,4 @@ from clearledger.authorization import can_create_payout, can_release_payout
+ 
+ 
+-MAX_AUTOMATIC_PAYOUT = Decimal("5000.00")
++MAX_AUTOMATIC_PAYOUT = Decimal("50000.00")
+ SUPPORTED_CURRENCIES = {"USD", "EUR", "GBP"}
+diff --git a/tests/test_authorization.py b/tests/test_authorization.py
+--- a/tests/test_authorization.py
++++ b/tests/test_authorization.py
+@@ -16,6 +16,6 @@ class AuthorizationTests(unittest.TestCase):
+         self.assertFalse(can_create_payout("viewer"))
+ 
+     def test_only_admin_releases_large_payouts(self) -> None:
+-        amount = Decimal("6000.00")
++        amount = Decimal("60000.00")
+         self.assertTrue(can_release_payout("finance_admin", amount))
+         self.assertFalse(can_release_payout("treasury_operator", amount))
+diff --git a/tests/test_payouts.py b/tests/test_payouts.py
+--- a/tests/test_payouts.py
++++ b/tests/test_payouts.py
+@@ -19,6 +19,6 @@ class PayoutTests(unittest.TestCase):
+     def test_large_payout_requires_manual_review(self) -> None:
+         result = evaluate_payout(
+             "treasury_operator",
+-            Decimal("6000.00"),
++            Decimal("60000.00"),
+             "USD",
+         )

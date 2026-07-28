@@ -1,0 +1,51 @@
+name: Required CI
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+jobs:
+  merge-gate-tests:
+    name: Merge Gate tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+      - name: Install Merge Gate
+        run: python -m pip install -e .
+      - name: Run Merge Gate tests
+        run: python -m unittest discover -s tests -v
+
+  sandbox-tests:
+    name: PR sandbox tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+      - name: Run sandbox tests
+        working-directory: demo-pr-repo
+        run: python -m unittest discover -s tests -v
+
+  clearledger-tests:
+    name: ClearLedger contract tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+      - name: Install ClearLedger
+        working-directory: clearledger-demo-repo
+        run: python -m pip install -e .
+      - name: Run ClearLedger tests
+        working-directory: clearledger-demo-repo
+        run: python -m unittest discover -v

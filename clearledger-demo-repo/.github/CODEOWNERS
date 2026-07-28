@@ -1,0 +1,8 @@
+# Project governance
+/.merge-gate/ @adapaania
+/.github/ @adapaania
+
+# Money movement and authorization boundaries
+/src/clearledger/payouts.py @adapaania
+/src/clearledger/authorization.py @adapaania
+/tests/test_authorization.py @adapaania

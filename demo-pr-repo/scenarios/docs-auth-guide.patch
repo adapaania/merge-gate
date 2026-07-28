@@ -1,0 +1,22 @@
+diff --git a/demo-pr-repo/docs/auth/troubleshooting.md b/demo-pr-repo/docs/auth/troubleshooting.md
+new file mode 100644
+index 0000000..f08f751
+--- /dev/null
++++ b/demo-pr-repo/docs/auth/troubleshooting.md
+@@ -0,0 +1,16 @@
++# Authentication troubleshooting
++
++## Expired sessions
++
++If a session expires, sign in again before retrying the request. Do not copy a
++session token into a support ticket or chat message.
++
++## Repeated sign-in prompts
++
++1. Confirm that the browser accepts first-party cookies.
++2. Check that the device clock is accurate.
++3. Sign out, close the browser tab, and sign in again.
++
++If the issue continues, record the request ID shown on the error page and send
++that identifier to the support team. The request ID is safe to share; session
++tokens and authentication cookies are not.

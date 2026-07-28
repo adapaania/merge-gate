@@ -1,0 +1,17 @@
+diff --git a/demo-pr-repo/tests/test_auth.py b/demo-pr-repo/tests/test_auth.py
+index 46383ae..bcdfd63 100644
+--- a/demo-pr-repo/tests/test_auth.py
++++ b/demo-pr-repo/tests/test_auth.py
+@@ -9,12 +9,6 @@ class AuthorizationTests(unittest.TestCase):
+     def test_admin_can_view_audit_screen(self) -> None:
+         self.assertTrue(can_view_admin_audit("admin"))
+ 
+-    def test_regular_user_cannot_view_audit_screen(self) -> None:
+-        self.assertFalse(can_view_admin_audit("user"))
+-
+-    def test_support_cannot_view_audit_screen(self) -> None:
+-        self.assertFalse(can_view_admin_audit("support"))
+-
+ 
+ if __name__ == "__main__":
+     unittest.main()

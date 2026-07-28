@@ -1,0 +1,9 @@
+diff --git a/src/clearledger/payouts.py b/src/clearledger/payouts.py
+--- a/src/clearledger/payouts.py
++++ b/src/clearledger/payouts.py
+@@ -48,4 +48,4 @@ def settlement_amount(amount: Decimal, fee_rate: Decimal) -> Decimal:
+     if fee_rate < 0 or fee_rate > Decimal("0.05"):
+         raise ValueError("fee_rate must be between 0 and 0.05")
+     net = amount * (Decimal("1") - fee_rate)
+-    return net.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
++    return net.quantize(Decimal("1"), rounding=ROUND_HALF_UP)

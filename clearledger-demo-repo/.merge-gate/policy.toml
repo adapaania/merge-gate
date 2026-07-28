@@ -1,0 +1,75 @@
+[project]
+name = "ClearLedger"
+version = 1
+default_action = "human_review"
+default_reason = "Unclassified application changes require a ClearLedger owner."
+
+[[rules]]
+id = "PAY-01"
+title = "Payout and settlement behavior"
+action = "human_review"
+reason = "Money movement, payout limits, fees, and settlement precision require finance-owner review."
+paths = [
+  "src/clearledger/payouts.py",
+]
+title_terms = [
+  "payout limit",
+  "settlement",
+  "fee",
+]
+
+[[rules]]
+id = "SEC-01"
+title = "Authorization boundaries"
+action = "human_review"
+reason = "Role and release-authority changes require security-owner review."
+paths = [
+  "src/clearledger/authorization.py",
+  "tests/test_authorization.py",
+]
+title_terms = [
+  "role",
+  "permission",
+  "authorization",
+]
+
+[[rules]]
+id = "OPS-01"
+title = "Workflow and dependency controls"
+action = "human_review"
+reason = "CI, dependencies, and deployment-control changes require platform-owner review."
+paths = [
+  ".github/workflows/**",
+  "pyproject.toml",
+]
+
+[[rules]]
+id = "GOV-01"
+title = "Merge policy governance"
+action = "human_review"
+reason = "Merge requirement changes require an explicit governance review."
+paths = [
+  ".merge-gate/**",
+]
+
+[[rules]]
+id = "SECRET-01"
+title = "Committed secret material"
+action = "block"
+reason = "Secret and local environment files must never enter the repository."
+paths = [
+  ".env",
+  ".env.*",
+  "secrets/**",
+]
+
+[[rules]]
+id = "DOC-01"
+title = "Documentation-only changes"
+action = "auto_merge_candidate"
+reason = "Documentation-only changes may proceed when CI and the global safety controls pass."
+paths = [
+  "docs/**",
+  "README.md",
+]
+path_match = "all"
