@@ -103,6 +103,9 @@ class GitHubPRTests(unittest.TestCase):
                                 "name": "tests",
                                 "status": "completed",
                                 "conclusion": "success",
+                                "details_url": (
+                                    "https://github.com/acme/widget/actions/runs/1"
+                                ),
                             }
                         ],
                     },
@@ -123,6 +126,10 @@ class GitHubPRTests(unittest.TestCase):
         self.assertEqual(snapshot.repository, "acme/widget")
         self.assertEqual(snapshot.ci_status, "passed")
         self.assertTrue(snapshot.diff_complete)
+        self.assertEqual(
+            snapshot.checks[0].details_url,
+            "https://github.com/acme/widget/actions/runs/1",
+        )
         self.assertEqual(decision.files_touched, ["docs/setup.md"])
         self.assertIsNone(decision.agent_confidence)
         self.assertIsNone(decision.reversible)

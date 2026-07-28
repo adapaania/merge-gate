@@ -50,6 +50,7 @@ class GitHubCheck(BaseModel):
     name: str
     source: Literal["check_run", "commit_status"]
     state: str
+    details_url: str | None = None
 
 
 class GitHubPRSnapshot(BaseModel):
@@ -255,6 +256,11 @@ def _normalize_checks(
                     name=str(item.get("name", "Unnamed check")),
                     source="check_run",
                     state=state,
+                    details_url=(
+                        item.get("details_url")
+                        if isinstance(item.get("details_url"), str)
+                        else None
+                    ),
                 )
             )
     if isinstance(statuses_payload, dict):
@@ -266,6 +272,11 @@ def _normalize_checks(
                     name=str(item.get("context", "Unnamed status")),
                     source="commit_status",
                     state=str(item.get("state", "unknown")),
+                    details_url=(
+                        item.get("target_url")
+                        if isinstance(item.get("target_url"), str)
+                        else None
+                    ),
                 )
             )
     return tuple(checks)

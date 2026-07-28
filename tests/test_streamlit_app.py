@@ -1,18 +1,29 @@
 from __future__ import annotations
 
+import os
 import unittest
+from unittest.mock import patch
 
 from streamlit.testing.v1 import AppTest
 
 
 class StreamlitSmokeTests(unittest.TestCase):
     def test_app_renders_without_exceptions(self) -> None:
-        app = AppTest.from_file("streamlit_app.py", default_timeout=20).run()
+        with patch.dict(
+            os.environ,
+            {"MERGE_GATE_DEFAULT_SOURCE": "Evaluation fixtures"},
+        ):
+            app = AppTest.from_file("streamlit_app.py", default_timeout=20).run()
         self.assertEqual(len(app.exception), 0)
         self.assertEqual([title.value for title in app.title], ["Merge Gate"])
         self.assertEqual(
             [tab.label for tab in app.tabs],
-            ["Overview", "Evidence", "Evaluation"],
+            [
+                "Live decision",
+                "Evidence & policy",
+                "Evaluation",
+                "Methodology",
+            ],
         )
         trace = app.dataframe[0].value
         self.assertEqual(

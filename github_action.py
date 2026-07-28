@@ -210,8 +210,9 @@ def run(args: argparse.Namespace) -> int:
     )
     result = analyze_decision(
         decision,
-        judge_mode=args.judge_mode,
+        judge_mode="live",
         project_policy=project_policy,
+        allow_offline_fallback=False,
     )
     trace = snapshot.trace + (ci_trace, policy_trace) + result.trace
     return _publish_result(
@@ -232,11 +233,6 @@ def build_parser() -> argparse.ArgumentParser:
         choices=sorted(CI_RESULT),
         default="unknown",
         help="Result of the target repository's prerequisite test job.",
-    )
-    parser.add_argument(
-        "--judge-mode",
-        choices=["offline", "live"],
-        default="offline",
     )
     return parser
 

@@ -15,13 +15,16 @@ evidence verifier, conservative composer, and GitHub job-summary renderer.
 
 ### ClearLedger
 
-A standalone payout-control repository sourced from
-`clearledger-demo-repo/`. It owns:
+A public standalone payout-control repository is available at
+https://github.com/adapaania/clearledger-demo and its proof PR is available at
+https://github.com/adapaania/clearledger-demo/pull/1. Its source is retained
+under `clearledger-demo-repo/`. It owns:
 
 - application code and tests;
 - `.merge-gate/policy.toml`;
 - CODEOWNERS;
 - its pull-request workflow;
+- an `ANTHROPIC_API_KEY` GitHub Actions secret for live judgment;
 - realistic PR scenario patches.
 
 ## What the project defines
@@ -78,7 +81,10 @@ GitHub job summary with evidence and execution trace
    - `PAY-01` and `SEC-01` matched;
    - final action is human review;
    - the tool/function table explains the entire run.
-9. Repeat with `break-currency-precision.patch`:
+9. Open the Streamlit dashboard's default **Live PR** view and show the same
+   GitHub checks, immutable project requirements, recomputed decision, and
+   tool/function trace without pasting a URL.
+10. Repeat with `break-currency-precision.patch`:
    - tests fail;
    - Merge Gate still runs because the job uses `if: always()`;
    - the deterministic CI control returns block.
@@ -87,10 +93,11 @@ GitHub job summary with evidence and execution trace
 
 1. Commit and push the reusable action to `adapaania/merge-gate`.
 2. Create the standalone ClearLedger repository.
-3. Copy the contents of `clearledger-demo-repo/` to its repository root.
-4. Commit and push its baseline `main`.
-5. Create and push one scenario branch.
-6. Open the PR and perform the live demonstration.
+3. Add `ANTHROPIC_API_KEY` as a ClearLedger Actions repository secret.
+4. Copy the contents of `clearledger-demo-repo/` to its repository root.
+5. Commit and push its baseline `main`.
+6. Create and push one scenario branch.
+7. Open the PR and perform the live demonstration.
 
 No GitHub publication has been performed merely by creating these local source
 files.

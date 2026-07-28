@@ -1,8 +1,10 @@
 from __future__ import annotations
 
 import unittest
+from unittest.mock import patch
 
 from engine import analyze_decision
+from llm_judge import JudgeUnavailable
 from policies import GateAction
 from tests.helpers import decision
 
@@ -54,6 +56,20 @@ class AdvisoryEngineTests(unittest.TestCase):
             f"{step.summary} {step.details}" for step in result.trace
         )
         self.assertNotIn(secret_marker, trace_text)
+
+    def test_live_dashboard_run_does_not_silently_fall_back(self) -> None:
+        with (
+            patch(
+                "engine.get_judgment",
+                side_effect=JudgeUnavailable("provider unavailable"),
+            ),
+            self.assertRaisesRegex(JudgeUnavailable, "provider unavailable"),
+        ):
+            analyze_decision(
+                decision(),
+                judge_mode="live",
+                allow_offline_fallback=False,
+            )
 
 
 if __name__ == "__main__":

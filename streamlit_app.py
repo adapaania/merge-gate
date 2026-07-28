@@ -15,33 +15,41 @@ import streamlit as st
 
 from engine import AnalysisResult, analyze_decision
 from evaluation import bucket_table, evaluation_table
+from execution_trace import TraceStep
 from feedback import append_feedback
 from github_pr import (
     GitHubFetchError,
     GitHubPRSnapshot,
     build_decision_from_github,
     fetch_github_pr,
+    fetch_github_text_file,
 )
-from llm_judge import get_cached_live_judgment
+from llm_judge import JudgeUnavailable, get_cached_live_judgment
 from model import Decision, load_decisions
-from policies import GateAction
+from policies import GateAction, PolicyResult
 from policy_retrieval import retrieve_policies
-from execution_trace import TraceStep
+from project_policy import (
+    ProjectPolicy,
+    evaluate_project_policy,
+    parse_project_policy,
+)
 
 
 PROJECT_ROOT = Path(__file__).resolve().parent
+LIVE_DEMO_PR_URL = os.getenv(
+    "MERGE_GATE_DEMO_PR_URL",
+    "https://github.com/adapaania/clearledger-demo/pull/1",
+)
 DATASETS = {
     "Challenge set": PROJECT_ROOT / "data/heldout_decisions.json",
     "Original stress test": PROJECT_ROOT / "data/decisions.json",
 }
-JUDGE_MODES = {
-    "Offline fixture": "offline",
-    "Live Claude": "live",
-}
 PR_SOURCES = {
-    "Demo fixtures": "fixture",
-    "Replay GitHub PR": "github",
+    "Live PR": "live_demo",
+    "Evaluation fixtures": "fixture",
+    "Replay another PR": "github",
 }
+DEFAULT_PR_SOURCE = os.getenv("MERGE_GATE_DEFAULT_SOURCE", "Live PR")
 
 
 st.set_page_config(
@@ -62,6 +70,32 @@ def cached_evaluation(path: str) -> pd.DataFrame:
     return evaluation_table(load_decisions(path))
 
 
+@st.cache_data(ttl="3m", max_entries=8, show_spinner=False)
+def cached_github_project(
+    url: str,
+    refresh_version: int,
+) -> tuple[GitHubPRSnapshot, ProjectPolicy, TraceStep]:
+    """Read a live PR and immutable project policy with bounded API caching."""
+
+    _ = refresh_version
+    token = os.getenv("GITHUB_TOKEN")
+    snapshot = fetch_github_pr(url, token=token)
+    policy_text, policy_trace = fetch_github_text_file(
+        snapshot.repository,
+        ref=snapshot.base_sha,
+        path=".merge-gate/policy.toml",
+        token=token,
+    )
+    project_policy = parse_project_policy(
+        policy_text,
+        source=(
+            f"{snapshot.repository}:.merge-gate/policy.toml@"
+            f"{snapshot.base_sha[:12]}"
+        ),
+    )
+    return snapshot, project_policy, policy_trace
+
+
 def action_label(action: GateAction) -> str:
     return {
         GateAction.AUTO_MERGE_CANDIDATE: "Auto-merge candidate",
@@ -72,7 +106,7 @@ def action_label(action: GateAction) -> str:
 
 def judgment_source_label(source: str) -> str:
     return {
-        "offline_demo_fixture": "Offline fixture",
+        "offline_demo_fixture": "Evaluation fixture",
         "live_claude": "Live Claude",
     }.get(source, source.replace("_", " ").capitalize())
 
@@ -114,7 +148,11 @@ def comparison_table(result: AnalysisResult) -> pd.DataFrame:
     return pd.DataFrame(rows)
 
 
-def render_evidence_summary(decision: Decision) -> None:
+def render_evidence_summary(
+    decision: Decision,
+    *,
+    judge_confidence: float | None,
+) -> None:
     ci_label = {
         True: "CI passed",
         False: "CI failed",
@@ -143,6 +181,30 @@ def render_evidence_summary(decision: Decision) -> None:
             icon=":material/description:",
             color="gray",
         )
+        if decision.agent_confidence is None:
+            st.badge(
+                "Authoring-agent confidence not supplied",
+                icon=":material/smart_toy:",
+                color="gray",
+            )
+        else:
+            st.badge(
+                f"Authoring-agent confidence {decision.agent_confidence:.0%}",
+                icon=":material/smart_toy:",
+                color="blue",
+            )
+        if judge_confidence is None:
+            st.badge(
+                "Claude analysis not run",
+                icon=":material/model_training:",
+                color="gray",
+            )
+        else:
+            st.badge(
+                f"Judge confidence {judge_confidence:.0%}",
+                icon=":material/model_training:",
+                color="gray",
+            )
         if not decision.diff_complete:
             st.badge(
                 "Diff incomplete",
@@ -195,6 +257,23 @@ def _known_unknown(value: bool | None) -> str:
     return "yes" if value is True else "no" if value is False else "unknown"
 
 
+def _check_color(state: str) -> str:
+    normalized = state.lower()
+    if normalized in {"success", "neutral", "skipped"}:
+        return "green"
+    if normalized in {
+        "failure",
+        "error",
+        "cancelled",
+        "timed_out",
+        "action_required",
+    }:
+        return "red"
+    if normalized in {"queued", "in_progress", "pending", "requested", "waiting"}:
+        return "orange"
+    return "gray"
+
+
 def render_live_pr_summary(snapshot: GitHubPRSnapshot) -> None:
     with st.container(border=True):
         with st.container(horizontal=True, vertical_alignment="center"):
@@ -237,6 +316,61 @@ def render_live_pr_summary(snapshot: GitHubPRSnapshot) -> None:
             )
             if snapshot.draft:
                 st.badge("Draft", icon=":material/edit_note:", color="gray")
+
+        visible_checks = [
+            check
+            for check in snapshot.checks
+            if check.name in {"ClearLedger tests", "Merge Gate"}
+        ]
+        if visible_checks:
+            st.markdown("**Observed GitHub checks**")
+            with st.container(horizontal=True, gap="small"):
+                for check in visible_checks:
+                    st.badge(
+                        f"{check.name}: {check.state.replace('_', ' ')}",
+                        icon=":material/check_circle:",
+                        color=_check_color(check.state),
+                    )
+            merge_gate_check = next(
+                (
+                    check
+                    for check in visible_checks
+                    if check.name == "Merge Gate" and check.details_url
+                ),
+                None,
+            )
+            if merge_gate_check is not None:
+                st.link_button(
+                    "Open the actual Merge Gate check",
+                    merge_gate_check.details_url,
+                    icon=":material/open_in_new:",
+                    type="tertiary",
+                )
+
+
+def render_project_requirements(
+    project_result: PolicyResult | None,
+    matched_rule_ids: tuple[str, ...],
+) -> None:
+    if project_result is None:
+        return
+    with st.container(border=True):
+        st.subheader("Matched project requirements", anchor=False)
+        if matched_rule_ids:
+            with st.container(horizontal=True, gap="small"):
+                for rule_id in matched_rule_ids:
+                    st.badge(
+                        rule_id,
+                        icon=":material/policy:",
+                        color="blue",
+                    )
+        else:
+            st.badge("Project default", icon=":material/policy:", color="gray")
+        st.write(project_result.reason)
+        st.caption(
+            "Fetched from `.merge-gate/policy.toml` at the pull request's "
+            "immutable base commit."
+        )
 
 
 def render_evaluation(dataset_name: str, dataset_path: Path) -> None:
@@ -382,41 +516,138 @@ def render_evaluation(dataset_name: str, dataset_path: Path) -> None:
 
 
 st.title("Merge Gate", anchor=False)
-st.write("Evaluation and replay dashboard for an automatic GitHub merge check.")
+st.write("Live pull-request control and evaluation dashboard.")
 st.caption(
-    "Live gating starts from the target repository's PR workflow · no automatic merges"
+    "The GitHub workflow is the product · this dashboard exposes its evidence, "
+    "requirements, decision pipeline, and evaluation"
 )
 
 with st.sidebar:
     st.header("Demo settings")
+    default_source = (
+        DEFAULT_PR_SOURCE
+        if DEFAULT_PR_SOURCE in PR_SOURCES
+        else "Live PR"
+    )
     selected_source_label = st.segmented_control(
         "PR source",
         list(PR_SOURCES),
-        default="Demo fixtures",
+        default=default_source,
         selection_mode="single",
         width="stretch",
     )
     selected_dataset = st.selectbox("Evaluation set", list(DATASETS))
-    selected_mode_label = st.segmented_control(
-        "Independent judge",
-        list(JUDGE_MODES),
-        default="Offline fixture",
-        selection_mode="single",
-        width="stretch",
-    )
     st.caption(
-        "The offline fixture is reproducible. Live mode calls the configured "
-        "Claude model only when you run the gate."
+        "Live PR and replay call Claude only after you select "
+        "**Analyze with Claude**. Evaluation fixtures remain test data."
     )
 
-selected_source_label = selected_source_label or "Demo fixtures"
+selected_source_label = selected_source_label or default_source
 selected_source = PR_SOURCES[selected_source_label]
-selected_mode_label = selected_mode_label or "Offline fixture"
-selected_mode = JUDGE_MODES[selected_mode_label]
 live_snapshot: GitHubPRSnapshot | None = None
+project_policy: ProjectPolicy | None = None
 source_trace: tuple[TraceStep, ...] = ()
+analysis: AnalysisResult | None = None
 
-if selected_source == "fixture":
+if selected_source == "live_demo":
+    st.session_state.setdefault("live_pr_refresh_version", 0)
+    with st.container(border=True):
+        st.subheader("Live PR", anchor=False)
+        st.caption(
+            "Public ClearLedger pull request · fetched directly from GitHub · "
+            "no pasted URL"
+        )
+        with st.container(horizontal=True, vertical_alignment="center"):
+            refresh_live = st.button(
+                "Refresh from GitHub",
+                icon=":material/refresh:",
+                key="refresh_live_demo",
+            )
+            st.link_button(
+                "Open proof PR",
+                LIVE_DEMO_PR_URL,
+                icon=":material/open_in_new:",
+                type="tertiary",
+            )
+        if refresh_live:
+            st.session_state["live_pr_refresh_version"] += 1
+
+    live_slot = st.container()
+    try:
+        with live_slot.skeleton(height=180):
+            live_snapshot, project_policy, policy_trace = cached_github_project(
+                LIVE_DEMO_PR_URL,
+                st.session_state["live_pr_refresh_version"],
+            )
+    except (GitHubFetchError, ValueError) as exc:
+        live_slot.error(
+            f"Live GitHub evidence is temporarily unavailable: {exc}",
+            icon=":material/cloud_off:",
+        )
+        live_slot.link_button(
+            "Open the live PR on GitHub",
+            LIVE_DEMO_PR_URL,
+            icon=":material/open_in_new:",
+        )
+        st.stop()
+
+    render_live_pr_summary(live_snapshot)
+    source_trace = live_snapshot.trace + (policy_trace,)
+    decision = build_decision_from_github(live_snapshot)
+    selected_id = decision.id
+    feedback_scope = "Live GitHub PR"
+    decision_context = (
+        f"Live GitHub evidence · head {live_snapshot.head_sha[:12]}"
+    )
+    state_key = (
+        f"live::{live_snapshot.repository}::{live_snapshot.pr_number}::"
+        f"{live_snapshot.head_sha}::claude"
+    )
+
+    with st.container(horizontal=True, vertical_alignment="center"):
+        run_gate = st.button(
+            "Analyze with Claude",
+            type="primary",
+            icon=":material/model_training:",
+            key="run_live_demo_gate",
+        )
+        st.caption(
+            "The GitHub status above is observed. The detailed decision below "
+            "is recomputed from the same PR evidence and base policy."
+        )
+
+    if run_gate:
+        with st.status("Running Merge Gate…", expanded=True) as status:
+            st.write("Using the target repository policy from the base commit")
+            st.write("Calling Claude for a structured risk judgment")
+            try:
+                live_result = analyze_decision(
+                    decision,
+                    judge_mode="live",
+                    project_policy=project_policy,
+                    allow_offline_fallback=False,
+                )
+            except JudgeUnavailable as exc:
+                status.update(
+                    label="Claude analysis unavailable",
+                    state="error",
+                    expanded=False,
+                )
+                st.error(
+                    f"Claude could not analyze this pull request: {exc}",
+                    icon=":material/cloud_off:",
+                )
+            else:
+                st.session_state[state_key] = live_result
+                st.write("Verifying evidence and composing the advisory action")
+                status.update(
+                    label="Claude analysis complete",
+                    state="complete",
+                    expanded=False,
+                )
+    analysis = st.session_state.get(state_key)
+
+elif selected_source == "fixture":
     decisions = cached_decisions(str(DATASETS[selected_dataset]))
     decision_by_id = {decision.id: decision for decision in decisions}
 
@@ -429,17 +660,17 @@ if selected_source == "fixture":
         )
         with st.container(horizontal=True, vertical_alignment="center"):
             run_gate = st.button(
-                "Run live gate" if selected_mode == "live" else "Run gate",
+                "Recompute evaluation fixture",
                 type="primary",
-                icon=":material/play_arrow:",
+                icon=":material/science:",
                 key="run_fixture_gate",
             )
-            st.caption(f"{selected_dataset} · {selected_mode_label}")
+            st.caption(
+                f"{selected_dataset} · deterministic test fixture, not a live model"
+            )
 
-        state_key = f"fixture::{selected_dataset}::{selected_id}::{selected_mode}"
+        state_key = f"fixture::{selected_dataset}::{selected_id}"
         if state_key not in st.session_state:
-            # Live mode starts with a clearly labeled offline preview. The API
-            # is called only after an explicit click, so reruns cannot spend tokens.
             st.session_state[state_key] = analyze_decision(
                 decision_by_id[selected_id],
                 judge_mode="offline",
@@ -448,19 +679,15 @@ if selected_source == "fixture":
         if run_gate:
             with st.status("Running Merge Gate…", expanded=True) as status:
                 st.write("Retrieving repository policy")
-                st.write(
-                    "Calling the independent judge"
-                    if selected_mode == "live"
-                    else "Loading the deterministic demo judgment"
-                )
+                st.write("Loading the deterministic evaluation judgment")
                 st.session_state[state_key] = analyze_decision(
                     decision_by_id[selected_id],
-                    judge_mode=selected_mode,
+                    judge_mode="offline",
                 )
                 st.write("Verifying evidence and composing the advisory action")
                 status.update(label="Gate complete", state="complete", expanded=False)
 
-    analysis: AnalysisResult = st.session_state[state_key]
+    analysis = st.session_state[state_key]
     decision = analysis.decision
     decision_context = (
         f"{decision.id} · scenario: {decision.bucket.replace('_', ' ')}"
@@ -485,15 +712,34 @@ else:
             )
 
         if fetch_pr:
-            st.session_state["live_pr_snapshot"] = None
+            st.session_state["replay_pr_snapshot"] = None
+            st.session_state["replay_project_policy"] = None
+            st.session_state["replay_policy_trace"] = None
             with st.status("Reading GitHub evidence…", expanded=True) as status:
                 st.write("Reading pull-request metadata and head commit")
                 st.write("Reading changed files and available patches")
                 st.write("Reading check runs and commit statuses")
+                st.write("Reading project policy from the immutable base commit")
                 try:
                     fetched_snapshot = fetch_github_pr(
                         github_url,
                         token=os.getenv("GITHUB_TOKEN"),
+                    )
+                    fetched_policy_text, fetched_policy_trace = (
+                        fetch_github_text_file(
+                            fetched_snapshot.repository,
+                            ref=fetched_snapshot.base_sha,
+                            path=".merge-gate/policy.toml",
+                            token=os.getenv("GITHUB_TOKEN"),
+                        )
+                    )
+                    fetched_project_policy = parse_project_policy(
+                        fetched_policy_text,
+                        source=(
+                            f"{fetched_snapshot.repository}:"
+                            ".merge-gate/policy.toml@"
+                            f"{fetched_snapshot.base_sha[:12]}"
+                        ),
                     )
                 except (GitHubFetchError, ValueError) as exc:
                     status.update(
@@ -503,41 +749,48 @@ else:
                     )
                     st.error(str(exc), icon=":material/error:")
                 else:
-                    st.session_state["live_pr_snapshot"] = fetched_snapshot
+                    st.session_state["replay_pr_snapshot"] = fetched_snapshot
+                    st.session_state["replay_project_policy"] = (
+                        fetched_project_policy
+                    )
+                    st.session_state["replay_policy_trace"] = fetched_policy_trace
                     status.update(
                         label="GitHub evidence ready",
                         state="complete",
                         expanded=False,
                     )
 
-    live_snapshot = st.session_state.get("live_pr_snapshot")
+    live_snapshot = st.session_state.get("replay_pr_snapshot")
+    project_policy = st.session_state.get("replay_project_policy")
+    policy_trace = st.session_state.get("replay_policy_trace")
     if live_snapshot is None:
         st.info(
-            "Paste a public PR URL, or configure `GITHUB_TOKEN` for a private "
-            "repository, then fetch the PR.",
+            "Paste a connected repository's PR URL to replay it. The primary "
+            "live demonstration is available under **Live PR**.",
             icon=":material/link:",
         )
         st.stop()
 
     render_live_pr_summary(live_snapshot)
-    source_trace = live_snapshot.trace
+    source_trace = live_snapshot.trace + (
+        (policy_trace,) if policy_trace is not None else ()
+    )
     decision = build_decision_from_github(live_snapshot)
     selected_id = decision.id
     feedback_scope = "GitHub PR"
     decision_context = (
-        f"Live GitHub evidence · head {live_snapshot.head_sha[:12]} · "
-        f"{selected_mode_label}"
+        f"Live GitHub evidence · head {live_snapshot.head_sha[:12]}"
     )
     state_key = (
         f"github::{live_snapshot.repository}::{live_snapshot.pr_number}::"
-        f"{live_snapshot.head_sha}::{selected_mode}"
+        f"{live_snapshot.head_sha}::claude"
     )
 
     with st.container(horizontal=True, vertical_alignment="center"):
         run_gate = st.button(
-            "Run live gate" if selected_mode == "live" else "Run gate",
+            "Analyze with Claude",
             type="primary",
-            icon=":material/play_arrow:",
+            icon=":material/model_training:",
             key="run_github_gate",
         )
         st.caption(
@@ -547,63 +800,80 @@ else:
     if run_gate:
         with st.status("Running Merge Gate…", expanded=True) as status:
             st.write("Retrieving repository policy")
-            st.write(
-                "Calling the independent judge"
-                if selected_mode == "live"
-                else "Loading the deterministic demo judgment"
-            )
-            st.session_state[state_key] = analyze_decision(
-                decision,
-                judge_mode=selected_mode,
-            )
-            st.write("Verifying evidence and composing the advisory action")
-            status.update(label="Gate complete", state="complete", expanded=False)
+            st.write("Calling Claude for a structured risk judgment")
+            try:
+                live_result = analyze_decision(
+                    decision,
+                    judge_mode="live",
+                    project_policy=project_policy,
+                    allow_offline_fallback=False,
+                )
+            except JudgeUnavailable as exc:
+                status.update(
+                    label="Claude analysis unavailable",
+                    state="error",
+                    expanded=False,
+                )
+                st.error(
+                    f"Claude could not analyze this pull request: {exc}",
+                    icon=":material/cloud_off:",
+                )
+            else:
+                st.session_state[state_key] = live_result
+                st.write("Verifying evidence and composing the advisory action")
+                status.update(
+                    label="Claude analysis complete",
+                    state="complete",
+                    expanded=False,
+                )
 
-    if state_key not in st.session_state:
-        render_evidence_summary(decision)
-        render_execution_trace(
-            source_trace,
-            label="Show GitHub fetch tools",
-        )
-        st.info(
-            "The PR evidence is ready. Select Run gate to produce an advisory decision.",
-            icon=":material/play_circle:",
-        )
-        st.stop()
-    analysis = st.session_state[state_key]
-
-if (
-    selected_source == "fixture"
-    and selected_mode == "live"
-    and analysis.judgment.source != "live_claude"
-):
-    st.caption(
-        ":material/cloud_off: Live mode is selected, but this is the offline "
-        "preview. Run the gate to call Claude."
-    )
-if analysis.judge_warning:
-    st.warning(
-        f"Live judge unavailable: {analysis.judge_warning} "
-        "The recommendation uses the offline fixture and remains advisory.",
-        icon=":material/warning:",
-    )
+    analysis = st.session_state.get(state_key)
 
 st.subheader(decision.title, anchor=False)
 st.caption(decision_context)
-render_final_call(analysis)
-render_evidence_summary(decision)
+if analysis is None:
+    render_evidence_summary(
+        decision,
+        judge_confidence=None,
+    )
+    if project_policy is not None:
+        project_preview = evaluate_project_policy(project_policy, decision)
+        render_project_requirements(
+            project_preview.result,
+            project_preview.matched_rule_ids,
+        )
+    st.info(
+        "GitHub evidence and project requirements are ready. Select "
+        "**Analyze with Claude** to produce the risk judgment and final action.",
+        icon=":material/model_training:",
+    )
+    render_execution_trace(
+        source_trace,
+        label="Show GitHub reads",
+    )
+    st.stop()
 
-overview_tab, evidence_tab, evaluation_tab = st.tabs(
-    ["Overview", "Evidence", "Evaluation"]
+render_final_call(analysis)
+render_evidence_summary(
+    decision,
+    judge_confidence=analysis.judgment.confidence,
+)
+render_project_requirements(
+    analysis.project_policy,
+    analysis.matched_project_rules,
 )
 
-with overview_tab:
+decision_tab, evidence_tab, evaluation_tab, methodology_tab = st.tabs(
+    ["Live decision", "Evidence & policy", "Evaluation", "Methodology"]
+)
+
+with decision_tab:
     with st.container(border=True):
         st.subheader("Why this decision", anchor=False)
         st.write(analysis.final.reason)
         st.caption(
-            f"Independent judge: {action_label(analysis.judgment.action)} · "
-            f"{analysis.judgment.confidence:.0%} confidence · "
+            f"Independent risk judge: {action_label(analysis.judgment.action)} · "
+            f"judge confidence {analysis.judgment.confidence:.0%} · "
             f"{analysis.verification.checked_claims} evidence "
             f"{'citation' if analysis.verification.checked_claims == 1 else 'citations'} "
             "checked"
@@ -664,7 +934,10 @@ with overview_tab:
                 human_action=human_action or "Agree",
                 reason=feedback_reason,
             )
-            st.success("Feedback saved locally for later evaluation.")
+            st.success(
+                "Feedback saved in this app instance for later evaluation. "
+                "Hosted demo storage is not durable."
+            )
 
 with evidence_tab:
     evidence_column, policy_column = st.columns([1, 1])
@@ -681,10 +954,10 @@ with evidence_tab:
         confidence_label = (
             f"{decision.agent_confidence:.0%}"
             if decision.agent_confidence is not None
-            else "unknown"
+            else "not supplied"
         )
         st.caption(
-            "Agent confidence: "
+            "Authoring-agent confidence: "
             f"{confidence_label}"
             f" · reversible: {_known_unknown(decision.reversible)}"
             f" · incident-linked: {_known_unknown(decision.touches_incident_code)}"
@@ -713,16 +986,16 @@ with evidence_tab:
                     st.caption("No check runs or commit statuses were observable.")
 
     with policy_column:
-        st.subheader("Retrieved policy", anchor=False)
-        if live_snapshot is None:
+        st.subheader("Applicable project policy", anchor=False)
+        if analysis.project_policy is not None:
             st.caption(
-                "The judge may cite only these policy IDs and the changed files."
+                "Fetched from the target repository at the pull request's "
+                "immutable base commit. The judge may cite only these matched "
+                "rule IDs and changed files."
             )
         else:
             st.caption(
-                "Prototype limitation: retrieval uses Merge Gate's local policy "
-                "fixture, not a policy file fetched from the target repository. "
-                "The judge may cite only these policy IDs and changed files."
+                "The judge may cite only these policy IDs and the changed files."
             )
         if not analysis.policies:
             st.info(
@@ -776,14 +1049,12 @@ with evidence_tab:
 with evaluation_tab:
     render_evaluation(selected_dataset, DATASETS[selected_dataset])
 
-with st.expander(
-    "How the gate works",
-    icon=":material/schema:",
-):
+with methodology_tab:
+    st.subheader("How the gate works", anchor=False)
     st.write(
         "The product is an automatic escalation-policy check. A connected "
         "repository invokes it from a pull-request workflow; this dashboard "
-        "exists for evaluation, inspection, and historical replay."
+        "makes one live run inspectable and supports evaluation and replay."
     )
     st.markdown(
         """

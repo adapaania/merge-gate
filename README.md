@@ -5,8 +5,10 @@ It recommends **auto-merge candidate**, **human review**, or **block** from
 observable evidence—not from how confident the coding agent sounds.
 
 The demo is advisory. It has no repository write access and never merges code.
-Its primary integration is an automatic GitHub PR check; pasting a URL into
-Streamlit is retained only for replay and debugging.
+Its primary integration is an automatic GitHub PR check. The Streamlit
+dashboard opens a public proof PR by default so the same live evidence, project
+requirements, decision pipeline, and evaluation can be presented without
+pasting a URL.
 
 ## The problem
 
@@ -72,7 +74,7 @@ cause a safe fallback to human review.
 - Pydantic schemas for PR evidence and model output
 - deterministic hard checks and inspectable policy baselines
 - versioned policy fixtures with lexical/domain retrieval
-- schema-constrained Anthropic judgment with caching, timeouts, and a no-key fallback
+- schema-constrained Anthropic judgment with caching, timeouts, and fail-closed errors
 - deterministic citation verification
 - conservative hybrid decision composition
 - read-only live GitHub PR ingestion for metadata, files, patches, check runs,
@@ -91,18 +93,17 @@ cause a safe fallback to human review.
 - regression tests covering mocked GitHub ingestion, project-policy precedence,
   action summaries, ClearLedger scenarios, and a full Streamlit smoke render
 
-## Truthful demo modes
+## Live judgment and test fixtures
 
-**Offline fixture** is deterministic and reliable without an API key. It is
-explicitly labeled as a fixture and demonstrates the full contract, retrieval,
-verification, and UI.
+The product path sends the selected PR's raw evidence and applicable project
+requirements to Claude. It does not silently replace a failed provider request
+with a simulated judgment: if Claude is unavailable, Merge Gate reports the
+failure and produces no AI recommendation.
 
-**Live Claude** sends the selected PR's raw evidence and retrieved policy to the
-configured model. A failed or missing request falls back to the labeled offline
-fixture. Live results are cached by evidence, policy text, model, and prompt
-version.
-
-Neither mode is evidence that the system is production-safe.
+Deterministic fixtures remain in the evaluation and unit-test paths so the
+system can be tested reproducibly without making provider calls. They are not a
+selectable product mode. Successful live results are cached by evidence, policy
+text, model, and prompt version.
 
 ## Automatic GitHub check
 
@@ -114,8 +115,11 @@ The intended experience requires no pasted URL:
 4. Merge Gate reads the PR and the repository policy at the base SHA.
 5. The GitHub job summary shows the advisory result and execution trace.
 
-The connected ClearLedger example is under `clearledger-demo-repo/`. When
-published as its own repository, its workflow calls:
+The connected example is the public
+[ClearLedger demo repository](https://github.com/adapaania/clearledger-demo).
+Its [payout-limit proof PR](https://github.com/adapaania/clearledger-demo/pull/1)
+runs both ClearLedger tests and Merge Gate automatically. Its local source is
+also retained under `clearledger-demo-repo/`. The workflow calls:
 
 ```yaml
 - uses: adapaania/merge-gate@main
@@ -123,23 +127,30 @@ published as its own repository, its workflow calls:
     github-token: ${{ github.token }}
     policy-path: .merge-gate/policy.toml
     ci-result: ${{ needs.tests.result }}
-    judge-mode: offline
+    anthropic-api-key: ${{ secrets.ANTHROPIC_API_KEY }}
 ```
 
 The action uses read-only `contents`, `pull-requests`, `checks`, and `statuses`
 permissions. A block fails the action job; human review emits a warning; a
-candidate emits a notice.
+candidate emits a notice. The connected repository must define an
+`ANTHROPIC_API_KEY` Actions secret.
 
-## Replay/debug dashboard
+## Live and replay dashboard
 
-In the sidebar, select **Replay GitHub PR**, paste a pull-request URL, and select
-**Fetch PR**. This mode is for historical replay, troubleshooting, and
-evaluation—not the product's normal trigger.
+The default **Live PR** view fetches the public ClearLedger proof PR directly
+from GitHub. It displays the observed ClearLedger and Merge Gate checks, links
+to the real workflow run, reads `.merge-gate/policy.toml` at the immutable base
+commit, and recomputes the detailed advisory decision. **Refresh from GitHub**
+bypasses a three-minute cache so the audience can see a deliberate live update.
+
+For another pull request, select **Replay another PR**, paste its GitHub URL,
+and select **Fetch PR**. Replay is for troubleshooting and evaluation—not the
+product's normal trigger.
 
 Fetching and judging are deliberately separate:
 
 1. **Fetch PR** reads GitHub evidence only.
-2. **Run gate** executes policy retrieval, the selected judge, citation
+2. **Analyze with Claude** executes policy matching, the live judge, citation
    verification, deterministic controls, and final composition.
 3. **Show tools and functions** displays a sanitized trace of those steps.
 

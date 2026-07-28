@@ -13,13 +13,9 @@ inputs:
     description: Result of the target repository's prerequisite CI job.
     required: false
     default: unknown
-  judge-mode:
-    description: "Independent judge mode: offline or live."
-    required: false
-    default: offline
   anthropic-api-key:
-    description: Optional provider key used only when judge-mode is live.
-    required: false
+    description: Provider key required for the live Claude risk judgment.
+    required: true
 
 outputs:
   action:
@@ -50,11 +46,9 @@ runs:
         python "$MERGE_GATE_ACTION_PATH/github_action.py"
         --policy-path "$MERGE_GATE_POLICY_PATH"
         --ci-result "$MERGE_GATE_CI_RESULT"
-        --judge-mode "$MERGE_GATE_JUDGE_MODE"
       env:
         MERGE_GATE_ACTION_PATH: ${{ github.action_path }}
         MERGE_GATE_POLICY_PATH: ${{ inputs.policy-path }}
         MERGE_GATE_CI_RESULT: ${{ inputs.ci-result }}
-        MERGE_GATE_JUDGE_MODE: ${{ inputs.judge-mode }}
         GITHUB_TOKEN: ${{ inputs.github-token }}
         ANTHROPIC_API_KEY: ${{ inputs.anthropic-api-key }}

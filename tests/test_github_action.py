@@ -146,6 +146,12 @@ class GitHubActionTests(unittest.TestCase):
                 output_path.read_text(encoding="utf-8"),
             )
 
+    def test_reusable_action_exposes_only_the_live_judge(self) -> None:
+        action = Path("action.yml").read_text(encoding="utf-8")
+        self.assertNotIn("judge-mode", action)
+        self.assertIn("anthropic-api-key", action)
+        self.assertIn("required: true", action)
+
 
 if __name__ == "__main__":
     unittest.main()

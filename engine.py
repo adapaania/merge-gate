@@ -100,6 +100,7 @@ def analyze_decision(
     *,
     judge_mode: str = "offline",
     project_policy: ProjectPolicy | None = None,
+    allow_offline_fallback: bool = True,
 ) -> AnalysisResult:
     """Run retrieval → judge → verify → hard checks → conservative composition."""
 
@@ -168,6 +169,8 @@ def analyze_decision(
     try:
         judgment = get_judgment(decision, policies, mode=judge_mode)
     except JudgeUnavailable as exc:
+        if not allow_offline_fallback:
+            raise
         warning = str(exc)
         judgment = get_judgment(decision, policies, mode="offline")
     trace.append(

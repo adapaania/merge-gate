@@ -36,4 +36,4 @@ jobs:
           github-token: ${{ github.token }}
           policy-path: .merge-gate/policy.toml
           ci-result: ${{ needs.tests.result }}
-          judge-mode: offline
+          anthropic-api-key: ${{ secrets.ANTHROPIC_API_KEY }}
