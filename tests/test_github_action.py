@@ -21,7 +21,8 @@ from github_action import (
 )
 from github_automerge import AutoMergeExecution
 from github_pr import GitHubChangedFile, GitHubPRSnapshot
-from judgment import offline_demo_judge
+from judgment import EvidenceCitation, JudgeResult, offline_demo_judge
+from policies import GateAction
 from project_policy import parse_project_policy
 from tests.helpers import decision
 
@@ -151,6 +152,36 @@ class GitHubActionTests(unittest.TestCase):
         self.assertIn("evaluate_project_policy", summary)
         self.assertIn("`enabled`", summary)
         self.assertIn("GitHub-native auto-merge", summary)
+        self.assertIn("## Evidence verification", summary)
+        self.assertIn("**Status:** `verified`", summary)
+
+    def test_summary_exposes_exact_evidence_verification_errors(self) -> None:
+        project_policy = parse_project_policy(POLICY)
+        invalid_judgment = JudgeResult(
+            action=GateAction.AUTO_MERGE_CANDIDATE,
+            risk_level="low",
+            reasons=["The change appears low risk."],
+            evidence=[
+                EvidenceCitation(
+                    claim="An unavailable source supports this change.",
+                    source_ids=["ci:invented"],
+                )
+            ],
+            confidence=0.9,
+            source="live_claude",
+            model="test-model",
+        )
+        with patch("engine.get_judgment", return_value=invalid_judgment):
+            result = analyze_decision(
+                decision(files_touched=["docs/operations.md"], ci_passed=True),
+                judge_mode="live",
+                project_policy=project_policy,
+            )
+
+        summary = build_job_summary(snapshot(), result, result.trace)
+        self.assertIn("**Status:** `rejected`", summary)
+        self.assertIn("Evidence source was not supplied: ci:invented", summary)
+        self.assertIn("Evidence claims checked", summary)
 
     def test_block_result_writes_summary_outputs_and_fails_job(self) -> None:
         project_policy = parse_project_policy(POLICY)

@@ -61,7 +61,7 @@ apply prerequisite CI result
     ↓
 match ClearLedger rules
     ↓
-structured judge + citation verification
+structured judge + typed evidence-source verification
     ↓
 conservative final action
     ↓

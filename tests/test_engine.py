@@ -4,8 +4,10 @@ import unittest
 from unittest.mock import patch
 
 from engine import analyze_decision
+from judgment import EvidenceCitation, JudgeResult
 from llm_judge import JudgeUnavailable
 from policies import GateAction
+from project_policy import parse_project_policy
 from tests.helpers import decision
 
 
@@ -70,6 +72,67 @@ class AdvisoryEngineTests(unittest.TestCase):
                 judge_mode="live",
                 allow_offline_fallback=False,
             )
+
+    def test_live_shaped_docs_judgment_can_pass_typed_evidence_verification(self) -> None:
+        project_policy = parse_project_policy(
+            """
+[project]
+name = "ClearLedger"
+version = 3
+default_action = "human_review"
+default_reason = "Unknown application changes require owner review."
+
+[[rules]]
+id = "DOC-01"
+title = "Documentation only"
+action = "auto_merge_candidate"
+reason = "Documentation-only changes may proceed after CI."
+paths = ["docs/**"]
+path_match = "all"
+"""
+        )
+        live_judgment = JudgeResult(
+            action=GateAction.AUTO_MERGE_CANDIDATE,
+            risk_level="low",
+            reasons=["The complete documentation-only change passed CI."],
+            evidence=[
+                EvidenceCitation(
+                    claim="Only the reconciliation runbook changed.",
+                    source_ids=[
+                        "file:docs/reconciliation.md",
+                        "policy:DOC-01",
+                    ],
+                ),
+                EvidenceCitation(
+                    claim="Prerequisite CI passed.",
+                    source_ids=["ci:prerequisite"],
+                ),
+                EvidenceCitation(
+                    claim="The complete diff contains eight changed lines.",
+                    source_ids=["diff:summary"],
+                ),
+            ],
+            triggered_policies=["DOC-01"],
+            confidence=0.95,
+            source="live_claude",
+            model="claude-haiku-4-5",
+        )
+        with patch("engine.get_judgment", return_value=live_judgment):
+            result = analyze_decision(
+                decision(
+                    title="Add reconciliation runbook",
+                    files_touched=["docs/reconciliation.md"],
+                    diff_lines=8,
+                    ci_passed=True,
+                    diff_complete=True,
+                ),
+                judge_mode="live",
+                project_policy=project_policy,
+                allow_offline_fallback=False,
+            )
+
+        self.assertTrue(result.verification.valid)
+        self.assertEqual(result.final.action, GateAction.AUTO_MERGE_CANDIDATE)
 
 
 if __name__ == "__main__":

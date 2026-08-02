@@ -76,8 +76,10 @@ flowchart LR
 
 The judge does **not** receive `should_escalate`, `path_risk`, or the label
 rationale. PR titles, diff excerpts, and policy text are treated as untrusted
-data. A model cannot override failed CI, and invented file or policy citations
-cause a safe fallback to human review.
+data. Every model claim must cite an exact source ID generated before the model
+call. The source catalog covers changed files, retrieved policies, prerequisite
+CI, diff metadata, and bounded PR metadata. A model cannot override failed CI,
+and an invented source ID causes a safe fallback to human review.
 
 ## What is implemented
 

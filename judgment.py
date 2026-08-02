@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from model import Decision
 from policies import GateAction, infer_sensitive_domains, raw_evidence_result
@@ -13,8 +13,16 @@ class EvidenceCitation(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     claim: str = Field(min_length=3)
-    file: str | None = None
-    policy_id: str | None = None
+    source_ids: list[str] = Field(min_length=1)
+
+    @field_validator("source_ids")
+    @classmethod
+    def require_unique_nonempty_sources(cls, source_ids: list[str]) -> list[str]:
+        if any(not source_id.strip() for source_id in source_ids):
+            raise ValueError("evidence source IDs must not be empty")
+        if len(source_ids) != len(set(source_ids)):
+            raise ValueError("evidence source IDs must be unique per claim")
+        return source_ids
 
 
 class JudgeResult(BaseModel):
@@ -47,17 +55,17 @@ def offline_demo_judge(decision: Decision, policies: list[PolicyMatch]) -> Judge
     if decision.files_touched:
         evidence.append(
             EvidenceCitation(
-                file=decision.files_touched[0],
                 claim=(
                     "Changed file is part of the observable pull-request evidence."
                 ),
+                source_ids=[f"file:{decision.files_touched[0]}"],
             )
         )
     for policy_id in triggered[:2]:
         evidence.append(
             EvidenceCitation(
-                policy_id=policy_id,
                 claim=f"Retrieved repository policy {policy_id} applies to the detected domain.",
+                source_ids=[f"policy:{policy_id}"],
             )
         )
 
@@ -89,4 +97,3 @@ def offline_demo_judge(decision: Decision, policies: list[PolicyMatch]) -> Judge
         source="offline_demo_fixture",
         model="deterministic-fixture",
     )
-

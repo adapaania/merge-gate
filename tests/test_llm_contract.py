@@ -30,6 +30,18 @@ class LlmContractTests(unittest.TestCase):
         self.assertNotIn("model", properties)
         self.assertFalse(JUDGE_OUTPUT_SCHEMA["additionalProperties"])
 
+    def test_evidence_contract_uses_typed_source_ids(self) -> None:
+        evidence = JUDGE_OUTPUT_SCHEMA["properties"]["evidence"]["items"]
+        self.assertEqual(evidence["required"], ["claim", "source_ids"])
+        self.assertNotIn("file", evidence["properties"])
+        self.assertNotIn("policy_id", evidence["properties"])
+
+        prompt = _prompt(decision(), retrieve_policies(decision()))
+        self.assertIn("Allowed evidence-source catalog", prompt)
+        self.assertIn("ci:prerequisite", prompt)
+        self.assertIn("diff:summary", prompt)
+        self.assertIn("file:docs/guide.md", prompt)
+
 
 if __name__ == "__main__":
     unittest.main()

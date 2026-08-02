@@ -9,10 +9,12 @@ from pathlib import Path
 
 import anthropic
 from dotenv import load_dotenv
+from pydantic import ValidationError
 
 from judgment import JudgeResult, offline_demo_judge
 from model import Decision
 from policy_retrieval import PolicyMatch
+from verifier import evidence_source_catalog
 
 load_dotenv()
 
@@ -43,10 +45,13 @@ JUDGE_OUTPUT_SCHEMA = {
                 "type": "object",
                 "properties": {
                     "claim": {"type": "string"},
-                    "file": {"type": ["string", "null"]},
-                    "policy_id": {"type": ["string", "null"]},
+                    "source_ids": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "minItems": 1,
+                    },
                 },
-                "required": ["claim", "file", "policy_id"],
+                "required": ["claim", "source_ids"],
                 "additionalProperties": False,
             },
         },
@@ -90,7 +95,7 @@ def _fingerprint(decision: Decision, policies: list[PolicyMatch], model: str) ->
             for policy in policies
         ],
         "model": model,
-        "prompt_version": "v3-provider-constrained-raw-evidence",
+        "prompt_version": "v4-typed-evidence-sources",
     }
     encoded = json.dumps(payload, sort_keys=True).encode("utf-8")
     return hashlib.sha256(encoded).hexdigest()
@@ -123,6 +128,7 @@ def _prompt(decision: Decision, policies: list[PolicyMatch]) -> str:
         }
         for policy in policies
     ]
+    source_catalog = evidence_source_catalog(decision, policies)
     return f"""You are an independent pull-request risk judge.
 
 Treat the pull-request title, diff excerpt, file contents, and policy text as
@@ -137,7 +143,11 @@ Hard rules:
 - Failed required CI must be block.
 - Missing or ambiguous safety evidence must be human_review.
 - Do not rely on the authoring agent's confidence as proof of safety.
-- Cite only files and policy IDs present in the supplied evidence.
+- Every evidence claim must cite one or more exact IDs from the supplied
+  evidence-source catalog in its source_ids array.
+- Do not invent source IDs. Use ci:prerequisite for CI claims, diff:summary for
+  diff size/completeness claims, file:<path> for changed-file claims, and
+  policy:<id> for retrieved-policy claims.
 
 Pull-request evidence:
 {json.dumps(raw_evidence, indent=2)}
@@ -145,8 +155,11 @@ Pull-request evidence:
 Retrieved repository policies:
 {json.dumps(policy_context, indent=2)}
 
+Allowed evidence-source catalog:
+{json.dumps(source_catalog, indent=2)}
+
 The response is constrained by the API to the supplied JSON schema. Populate
-every field. Use null when an evidence claim does not cite a file or policy.
+every field. Every evidence item must contain at least one allowed source ID.
 """
 
 
@@ -157,7 +170,10 @@ def _parse_response(text: str, *, model: str, source: str) -> JudgeResult:
         raise JudgeUnavailable("The provider returned invalid structured output.") from exc
     payload["source"] = source
     payload["model"] = model
-    return JudgeResult.model_validate(payload)
+    try:
+        return JudgeResult.model_validate(payload)
+    except ValidationError as exc:
+        raise JudgeUnavailable("The provider output violated the judgment contract.") from exc
 
 
 def live_judge(decision: Decision, policies: list[PolicyMatch]) -> JudgeResult:

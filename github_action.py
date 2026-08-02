@@ -123,6 +123,16 @@ def build_job_summary(
         if execution_status == "enabled"
         else "No direct merge was performed by this job."
     )
+    verification_status = "verified" if result.verification.valid else "rejected"
+    if result.verification.valid:
+        verification_detail = (
+            f"All {result.verification.checked_claims} model evidence claim(s) "
+            "used supplied source IDs."
+        )
+    else:
+        verification_detail = "\n".join(
+            f"- {_markdown(error)}" for error in result.verification.errors[:10]
+        )
 
     trace_rows = "\n".join(
         f"| {index} | {_markdown(item.kind)} | `{_markdown(item.name)}` | {_markdown(item.status)} | {_markdown(item.summary)} | {item.duration_ms:.2f} |"
@@ -139,6 +149,13 @@ def build_job_summary(
 ## Decision
 
 {_markdown(result.final.reason)}
+
+## Evidence verification
+
+- **Status:** `{verification_status}`
+- **Claims checked:** {result.verification.checked_claims}
+
+{verification_detail}
 
 ## Execution
 
@@ -162,7 +179,7 @@ def build_job_summary(
 | Diff complete | {_markdown(result.decision.diff_complete)} |
 | Reversibility | {_markdown(result.decision.reversible)} |
 | Incident linkage | {_markdown(result.decision.touches_incident_code)} |
-| Evidence citations verified | {result.verification.checked_claims} |
+| Evidence claims checked | {result.verification.checked_claims} |
 | Matched policy requires CI | {_markdown(result.policy_requires_ci)} |
 
 <details>
