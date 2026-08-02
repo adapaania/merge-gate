@@ -72,6 +72,7 @@ class GitHubPRTests(unittest.TestCase):
                         "head": {
                             "ref": "docs/setup",
                             "sha": "abcdef1234567890",
+                            "repo": {"full_name": "acme/widget"},
                         },
                         "draft": False,
                         "additions": 3,
@@ -103,9 +104,7 @@ class GitHubPRTests(unittest.TestCase):
                                 "name": "tests",
                                 "status": "completed",
                                 "conclusion": "success",
-                                "details_url": (
-                                    "https://github.com/acme/widget/actions/runs/1"
-                                ),
+                                "details_url": ("https://github.com/acme/widget/actions/runs/1"),
                             }
                         ],
                     },
@@ -124,6 +123,7 @@ class GitHubPRTests(unittest.TestCase):
         decision = build_decision_from_github(snapshot)
 
         self.assertEqual(snapshot.repository, "acme/widget")
+        self.assertEqual(snapshot.head_repository, "acme/widget")
         self.assertEqual(snapshot.ci_status, "passed")
         self.assertTrue(snapshot.diff_complete)
         self.assertEqual(

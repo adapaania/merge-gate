@@ -98,6 +98,29 @@ default_reason = "Unclassified changes require a person until a rule clears them
   what makes the baseline meaningful — it's the floor under every repository
   that hasn't been explicitly cleared for a category of change.
 
+## Auto-merge execution
+
+Decision-making remains advisory unless the policy at the PR's immutable base
+commit explicitly opts into execution:
+
+```toml
+[project.execution]
+enabled = true
+merge_method = "squash"  # merge, squash, or rebase
+```
+
+If an organization baseline is configured, both the organization and project
+documents must set `execution.enabled = true`. The organization baseline owns
+the effective merge method, so a repository cannot weaken shared execution
+governance. Policy opt-in alone is not enough: the action also needs a separate
+`execution-token`.
+
+Execution is attempted only for a final `auto_merge_candidate` with passing CI,
+a complete diff, a non-draft same-repository PR, and unchanged head and base
+SHAs. Merge Gate enables GitHub-native auto-merge; it does not bypass branch
+protection or required approvals. Human-review and block results never call the
+write API.
+
 ## Organization baseline template
 
 Save as `.merge-gate/organization.toml` in whichever repository you point
@@ -181,6 +204,7 @@ action inputs (see `action.yml`):
   with:
     github-token: ${{ github.token }}
     anthropic-api-key: ${{ secrets.ANTHROPIC_API_KEY }}
+    execution-token: ${{ secrets.MERGE_GATE_EXECUTION_TOKEN }}
     org-policy-repo: your-org/policy-baseline
     org-policy-ref: main
     org-policy-path: .merge-gate/organization.toml   # default shown
@@ -189,6 +213,13 @@ action inputs (see `action.yml`):
 `org-policy-repo` needs no other special setup — it's read with the same
 read-only `github-token` used for everything else, so the token must have at
 least read access to that repository too.
+
+`MERGE_GATE_EXECUTION_TOKEN` should be a separately managed GitHub App token or
+fine-grained token limited to the target repository, with `Contents: write` and
+`Pull requests: write`. Do not reuse a developer's broad CLI token. Omitting
+the input leaves Merge Gate in advisory mode. If policy enables execution but a
+verified candidate has no execution token, the job fails closed instead of
+pretending the PR will merge.
 
 **Streamlit dashboard** — the Live decision page picks up the same baseline
 through environment variables, so the demo and the GitHub check stay

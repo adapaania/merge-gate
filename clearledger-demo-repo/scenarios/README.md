@@ -46,7 +46,8 @@ category, and a subtler test-weakening pattern.
 `SECRET-01`'s `.env.*` glob was written to catch `.env.local`, `.env.prod`,
 etc., but it also matches the harmless, commonly-committed `.env.example`
 template. Policy version 1 would have **blocked** this PR outright. Version
-2 (the currently committed policy) adds `EXC-01`: a time-boxed exception
+2 added `EXC-01`, and the currently committed version 3 retains it alongside
+the separate auto-merge execution settings: a time-boxed exception
 that waives `SECRET-01` specifically for `.env.example`, owned by
 `platform-team`, expiring 2027-01-01. With the exception in place the result
 is **human review** (the project default — nothing else matches this path),

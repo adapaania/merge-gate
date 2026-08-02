@@ -153,6 +153,12 @@ The demo-day MVP should do the following:
 `AUTO_MERGE_CANDIDATE` is intentionally advisory. The MVP should not possess
 permission to merge a PR.
 
+The implemented demo now includes a post-MVP, opt-in execution adapter. It
+enables GitHub-native auto-merge only after a verified candidate decision,
+policy opt-in, passing CI, complete evidence, and exact SHA revalidation. This
+does not change the evaluation claim: the current dataset is not sufficient to
+justify autonomous production rollout.
+
 ### Explicitly out of scope for the MVP
 
 - automatic production merges;
@@ -809,6 +815,15 @@ and evidence-based oversight.
 - optionally post a non-blocking GitHub check;
 - deploy the dashboard.
 
+### Phase 5: Add constrained execution
+
+- require explicit opt-in in every configured policy layer;
+- keep read and write credentials separate;
+- reject drafts, forks, incomplete diffs, and stale head/base SHAs;
+- enable GitHub-native auto-merge rather than bypassing branch protection;
+- record the execution status and sanitized tool trace;
+- keep production execution disabled until shadow-mode evaluation is complete.
+
 ---
 
 ## 20. Success criteria for demo day
@@ -839,6 +854,8 @@ The project is demo-ready when:
 - Deterministic and LLM policies have different failure modes.
 - Evidence verification can detect unsupported model claims.
 - Human feedback can be captured for future evaluation.
+- A verified candidate can enable GitHub-native auto-merge in an explicitly
+  opted-in demo repository.
 
 ### Claims the MVP may not make
 
@@ -884,8 +901,9 @@ evaluate, and safely constrain the resulting AI system.
 
 ## 23. Final project description
 
-> Merge Gate is an evaluation framework and advisory GitHub policy gate that
-> compares deterministic and LLM-based methods for deciding when coding agents
-> should defer to humans. It collects PR evidence, applies hard safety rules,
-> uses an independent model for ambiguous cases, verifies the model's evidence,
-> and measures the trade-off between autonomous coverage and missed risk.
+> Merge Gate is an evaluation-backed GitHub policy gate with an opt-in execution
+> layer. It compares deterministic and LLM-based methods for deciding when
+> coding agents should defer to humans, verifies the model's evidence, measures
+> the trade-off between autonomous coverage and missed risk, and can enable
+> GitHub-native auto-merge for a revalidated candidate in a configured demo
+> repository.

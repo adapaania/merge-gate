@@ -5,6 +5,7 @@ from datetime import date
 
 from policies import GateAction
 from policy_schema import (
+    AutoMergePolicy,
     PolicyDocument,
     PolicyException,
     PolicyRule,
@@ -103,9 +104,7 @@ class MissingOrInvalidPolicyTests(unittest.TestCase):
 
     def test_missing_section_is_a_value_error(self) -> None:
         with self.assertRaises(ValueError):
-            parse_policy_document(
-                "[not_organization]\nname = 'x'\n", section="organization"
-            )
+            parse_policy_document("[not_organization]\nname = 'x'\n", section="organization")
 
     def test_invalid_toml_is_a_value_error(self) -> None:
         with self.assertRaises(ValueError):
@@ -180,11 +179,39 @@ reason = "This references a rule that does not exist."
         with self.assertRaises(ValueError):
             parse_policy_document(bad, section="organization")
 
+    def test_execution_defaults_to_disabled(self) -> None:
+        self.assertEqual(_org_policy().execution, AutoMergePolicy())
+
+    def test_document_can_explicitly_enable_squash_auto_merge(self) -> None:
+        enabled = ORG_TOML.replace(
+            'default_reason = "Unclassified changes require a person until a rule clears them."',
+            'default_reason = "Unclassified changes require a person until a rule clears them."\n'
+            "\n[organization.execution]\n"
+            "enabled = true\n"
+            'merge_method = "squash"',
+        )
+        policy = parse_policy_document(enabled, section="organization").document
+        self.assertTrue(policy.execution.enabled)
+        self.assertEqual(policy.execution.merge_method, "squash")
+
+    def test_unknown_execution_merge_method_is_rejected(self) -> None:
+        bad = ORG_TOML.replace(
+            'default_reason = "Unclassified changes require a person until a rule clears them."',
+            'default_reason = "Unclassified changes require a person until a rule clears them."\n'
+            "\n[organization.execution]\n"
+            "enabled = true\n"
+            'merge_method = "fast_forward"',
+        )
+        with self.assertRaises(ValueError):
+            parse_policy_document(bad, section="organization")
+
 
 class PolicyExceptionTests(unittest.TestCase):
     """Exceptions waive one matched rule; expiry and scope are enforced."""
 
-    def _policy_with_exception(self, *, expires_on: date, paths: tuple[str, ...] = ()) -> PolicyDocument:
+    def _policy_with_exception(
+        self, *, expires_on: date, paths: tuple[str, ...] = ()
+    ) -> PolicyDocument:
         return PolicyDocument(
             name="ClearLedger",
             version=1,

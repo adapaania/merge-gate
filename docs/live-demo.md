@@ -25,6 +25,7 @@ under `clearledger-demo-repo/`. It owns:
 - CODEOWNERS;
 - its pull-request workflow;
 - an `ANTHROPIC_API_KEY` GitHub Actions secret for live judgment;
+- a `MERGE_GATE_EXECUTION_TOKEN` secret for the optional auto-merge phase;
 - realistic PR scenario patches.
 
 ## What the project defines
@@ -65,6 +66,8 @@ structured judge + citation verification
 conservative final action
     ↓
 GitHub job summary with evidence and execution trace
+    ↓
+verified candidate + policy opt-in → enable GitHub native auto-merge
 ```
 
 ## Demo sequence
@@ -89,16 +92,23 @@ GitHub job summary with evidence and execution trace
    - tests fail;
    - Merge Gate still runs because the job uses `if: always()`;
    - the deterministic CI control returns block.
+11. Use a non-draft documentation-only PR to demonstrate execution:
+   - CI and the verified judge must agree on `auto_merge_candidate`;
+   - the policy must have `[project.execution] enabled = true`;
+   - the job summary records `execution: enabled`;
+   - GitHub completes the squash merge after repository requirements pass.
 
 ## Publishing order
 
 1. Commit and push the reusable action to `adapaania/merge-gate`.
 2. Create the standalone ClearLedger repository.
 3. Add `ANTHROPIC_API_KEY` as a ClearLedger Actions repository secret.
-4. Copy the contents of `clearledger-demo-repo/` to its repository root.
-5. Commit and push its baseline `main`.
-6. Create and push one scenario branch.
-7. Open the PR and perform the live demonstration.
+4. Add a narrowly scoped `MERGE_GATE_EXECUTION_TOKEN` Actions secret.
+5. Enable repository auto-merge and configure branch protection/rulesets.
+6. Copy the contents of `clearledger-demo-repo/` to its repository root.
+7. Commit and push its baseline `main`.
+8. Create and push one scenario branch.
+9. Open the PR, mark an eligible candidate ready for review, and demonstrate.
 
 No GitHub publication has been performed merely by creating these local source
 files.

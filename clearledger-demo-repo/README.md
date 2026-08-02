@@ -21,6 +21,11 @@ The repository owns its requirements in
 2. the reusable `adapaania/merge-gate` action;
 3. a GitHub job summary containing the decision and execution trace.
 
+Policy version 3 opts this demo repository into squash auto-merge. The action
+uses a separate `MERGE_GATE_EXECUTION_TOKEN` only when the final decision is a
+verified candidate. Drafts, review-required changes, blocks, fork PRs, and stale
+evidence are never auto-merged.
+
 Developers do not paste a PR URL into Merge Gate. The `pull_request` event
 provides the repository, PR number, base commit, and head commit automatically.
 

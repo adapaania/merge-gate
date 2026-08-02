@@ -1,8 +1,12 @@
 [project]
 name = "ClearLedger"
-version = 2
+version = 3
 default_action = "human_review"
 default_reason = "Unclassified application changes require a ClearLedger owner."
+
+[project.execution]
+enabled = true
+merge_method = "squash"
 
 [[rules]]
 id = "PAY-01"

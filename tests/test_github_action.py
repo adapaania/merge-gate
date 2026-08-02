@@ -4,7 +4,7 @@ import json
 import os
 import tempfile
 import unittest
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 from unittest.mock import patch
 
@@ -19,6 +19,7 @@ from github_action import (
     main,
     run,
 )
+from github_automerge import AutoMergeExecution
 from github_pr import GitHubChangedFile, GitHubPRSnapshot
 from judgment import offline_demo_judge
 from project_policy import parse_project_policy
@@ -28,6 +29,7 @@ from tests.helpers import decision
 def _offline_judgment(decision, policies, mode="offline"):
     del mode
     return offline_demo_judge(decision, policies)
+
 
 ORGANIZATION_POLICY = """
 [organization]
@@ -73,6 +75,7 @@ def snapshot() -> GitHubPRSnapshot:
         base_sha="1111111111111111",
         head_ref="docs/operations",
         head_sha="2222222222222222",
+        head_repository="acme/clearledger",
         draft=False,
         additions=2,
         deletions=0,
@@ -90,7 +93,7 @@ def snapshot() -> GitHubPRSnapshot:
         ci_status="unknown",
         diff_excerpt="+ safer wording",
         diff_complete=True,
-        fetched_at=datetime.now(timezone.utc),
+        fetched_at=datetime.now(UTC),
         trace=(),
     )
 
@@ -101,11 +104,7 @@ class GitHubActionTests(unittest.TestCase):
             event = Path(directory) / "event.json"
             event.write_text(
                 json.dumps(
-                    {
-                        "pull_request": {
-                            "html_url": "https://github.com/acme/clearledger/pull/7"
-                        }
-                    }
+                    {"pull_request": {"html_url": "https://github.com/acme/clearledger/pull/7"}}
                 ),
                 encoding="utf-8",
             )
@@ -140,11 +139,18 @@ class GitHubActionTests(unittest.TestCase):
                 duration_ms=1.25,
             ),
         ) + result.trace
-        summary = build_job_summary(snapshot(), result, trace)
+        execution = AutoMergeExecution(
+            status="enabled",
+            reason="GitHub auto-merge is enabled.",
+            merge_method="squash",
+        )
+        summary = build_job_summary(snapshot(), result, trace, execution)
         self.assertIn("Auto-merge candidate", summary)
         self.assertIn("DOC-01", summary)
         self.assertIn("github.rest.get_pull_request", summary)
         self.assertIn("evaluate_project_policy", summary)
+        self.assertIn("`enabled`", summary)
+        self.assertIn("GitHub-native auto-merge", summary)
 
     def test_block_result_writes_summary_outputs_and_fails_job(self) -> None:
         project_policy = parse_project_policy(POLICY)
@@ -174,7 +180,28 @@ class GitHubActionTests(unittest.TestCase):
         action = Path("action.yml").read_text(encoding="utf-8")
         self.assertNotIn("judge-mode", action)
         self.assertIn("anthropic-api-key", action)
+        self.assertIn("execution-token", action)
+        self.assertIn("execution-status", action)
         self.assertIn("required: true", action)
+
+    def test_execution_failure_fails_candidate_job_closed(self) -> None:
+        project_policy = parse_project_policy(POLICY)
+        result = analyze_decision(
+            decision(files_touched=["docs/operations.md"], ci_passed=True),
+            project_policy=project_policy,
+        )
+        execution = AutoMergeExecution(
+            status="failed",
+            reason="Execution token is unavailable.",
+            merge_method="squash",
+        )
+        with tempfile.TemporaryDirectory() as directory:
+            output_path = Path(directory) / "output.txt"
+            with patch.dict(os.environ, {"GITHUB_OUTPUT": str(output_path)}):
+                exit_code = _publish_result(result, "# Result", execution)
+            output = output_path.read_text(encoding="utf-8")
+        self.assertEqual(exit_code, 2)
+        self.assertIn("execution_status=failed", output)
 
 
 class OrganizationPolicyWiringTests(unittest.TestCase):
@@ -202,7 +229,9 @@ class OrganizationPolicyWiringTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             event_path = Path(directory) / "event.json"
             event_path.write_text(
-                json.dumps({"pull_request": {"html_url": "https://github.com/acme/clearledger/pull/7"}}),
+                json.dumps(
+                    {"pull_request": {"html_url": "https://github.com/acme/clearledger/pull/7"}}
+                ),
                 encoding="utf-8",
             )
             summary_path = Path(directory) / "summary.md"
@@ -264,7 +293,9 @@ class OrganizationPolicyWiringTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             event_path = Path(directory) / "event.json"
             event_path.write_text(
-                json.dumps({"pull_request": {"html_url": "https://github.com/acme/clearledger/pull/7"}}),
+                json.dumps(
+                    {"pull_request": {"html_url": "https://github.com/acme/clearledger/pull/7"}}
+                ),
                 encoding="utf-8",
             )
             summary_path = Path(directory) / "summary.md"

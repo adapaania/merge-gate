@@ -6,11 +6,12 @@ import argparse
 import html
 import json
 import os
+from collections.abc import Iterable
 from pathlib import Path
-from typing import Iterable
 
 from engine import AnalysisResult, analyze_decision
 from execution_trace import TraceStep
+from github_automerge import AutoMergeExecution, maybe_enable_auto_merge
 from github_pr import (
     GitHubPRSnapshot,
     build_decision_from_github,
@@ -20,7 +21,6 @@ from github_pr import (
 from model import Decision
 from policies import GateAction
 from policy_schema import parse_policy_document
-
 
 CI_RESULT = {
     "success": True,
@@ -80,6 +80,7 @@ def build_job_summary(
     snapshot: GitHubPRSnapshot,
     result: AnalysisResult,
     trace: Iterable[TraceStep],
+    execution: AutoMergeExecution | None = None,
 ) -> str:
     """Create a bounded GitHub-flavored Markdown decision and trace."""
 
@@ -93,32 +94,38 @@ def build_job_summary(
         GateAction.HUMAN_REVIEW: "⚠️",
         GateAction.BLOCK: "⛔",
     }[result.final.action]
-    matched_rules = ", ".join(
-        [f"org:{rule_id}" for rule_id in result.matched_organization_rules]
-        + [f"repo:{rule_id}" for rule_id in result.matched_project_rules]
-    ) or "no rule matched (policy default applied)"
-    required_teams = ", ".join(result.required_teams) or "none"
-    policy_rows = "\n".join(
-        f"| {source.scope} | {_markdown(source.name)} | {source.version} | "
-        f"`{_markdown(source.content_hash or 'unavailable')}` |"
-        for source in result.policy_sources
-    ) or "| — | no policy configured | — | — |"
-    changed_files = "\n".join(
-        f"- `{_markdown(file.filename)}`"
-        for file in snapshot.files[:20]
+    matched_rules = (
+        ", ".join(
+            [f"org:{rule_id}" for rule_id in result.matched_organization_rules]
+            + [f"repo:{rule_id}" for rule_id in result.matched_project_rules]
+        )
+        or "no rule matched (policy default applied)"
     )
+    required_teams = ", ".join(result.required_teams) or "none"
+    policy_rows = (
+        "\n".join(
+            f"| {source.scope} | {_markdown(source.name)} | {source.version} | "
+            f"`{_markdown(source.content_hash or 'unavailable')}` |"
+            for source in result.policy_sources
+        )
+        or "| — | no policy configured | — | — |"
+    )
+    changed_files = "\n".join(f"- `{_markdown(file.filename)}`" for file in snapshot.files[:20])
     if len(snapshot.files) > 20:
         changed_files += f"\n- …and {len(snapshot.files) - 20} more"
 
+    execution_status = execution.status if execution else "not_run"
+    execution_reason = execution.reason if execution else "Execution was not evaluated."
+    execution_method = execution.merge_method if execution and execution.merge_method else "—"
+    execution_note = (
+        "Merge Gate enabled GitHub-native auto-merge. GitHub will perform the merge only "
+        "after repository requirements are satisfied."
+        if execution_status == "enabled"
+        else "No direct merge was performed by this job."
+    )
+
     trace_rows = "\n".join(
-        "| {step} | {kind} | `{name}` | {status} | {summary} | {duration:.2f} |".format(
-            step=index,
-            kind=_markdown(item.kind),
-            name=_markdown(item.name),
-            status=_markdown(item.status),
-            summary=_markdown(item.summary),
-            duration=item.duration_ms,
-        )
+        f"| {index} | {_markdown(item.kind)} | `{_markdown(item.name)}` | {_markdown(item.status)} | {_markdown(item.summary)} | {item.duration_ms:.2f} |"
         for index, item in enumerate(trace, start=1)
     )
     return f"""# {action_icon} Merge Gate: {action_label}
@@ -132,6 +139,14 @@ def build_job_summary(
 ## Decision
 
 {_markdown(result.final.reason)}
+
+## Execution
+
+| Field | Value |
+|---|---|
+| Status | `{_markdown(execution_status)}` |
+| Merge method | `{_markdown(execution_method)}` |
+| Reason | {_markdown(execution_reason)} |
 
 ## Effective policy
 
@@ -163,7 +178,7 @@ def build_job_summary(
 |---:|---|---|---|---|---:|
 {trace_rows}
 
-> Merge Gate is advisory. It did not approve, comment on, or merge this PR.
+> {_markdown(execution_note)}
 """
 
 
@@ -177,15 +192,32 @@ def _append_environment_file(variable: str, value: str) -> None:
             stream.write("\n")
 
 
-def _publish_result(result: AnalysisResult, summary: str) -> int:
+def _publish_result(
+    result: AnalysisResult,
+    summary: str,
+    execution: AutoMergeExecution | None = None,
+) -> int:
     _append_environment_file("GITHUB_STEP_SUMMARY", summary)
     _append_environment_file("GITHUB_OUTPUT", f"action={result.final.action.value}")
     _append_environment_file(
         "GITHUB_OUTPUT",
         f"reason={result.final.reason.replace(chr(10), ' ')}",
     )
+    _append_environment_file(
+        "GITHUB_OUTPUT",
+        f"execution_status={execution.status if execution else 'not_run'}",
+    )
+    _append_environment_file(
+        "GITHUB_OUTPUT",
+        "execution_reason="
+        + (execution.reason.replace(chr(10), " ") if execution else "Execution was not evaluated."),
+    )
 
     annotation = _command_value(result.final.reason)
+    if execution is not None and execution.failed:
+        execution_annotation = _command_value(execution.reason)
+        print(f"::error title=Merge Gate could not enable auto-merge::{execution_annotation}")
+        return 2
     if result.final.action == GateAction.BLOCK:
         print(f"::error title=Merge Gate blocked this PR::{annotation}")
         return 1
@@ -258,10 +290,19 @@ def run(args: argparse.Namespace) -> int:
         organization_policy_hash=organization_hash,
         allow_offline_fallback=False,
     )
-    trace = snapshot.trace + (ci_trace, policy_trace) + extra_trace + result.trace
+    execution = maybe_enable_auto_merge(
+        snapshot=snapshot,
+        action=result.final.action,
+        ci_passed=result.decision.ci_passed,
+        project_policy=loaded_project_policy.document,
+        organization_policy=organization_policy,
+        token=os.getenv("MERGE_GATE_EXECUTION_TOKEN"),
+    )
+    trace = snapshot.trace + (ci_trace, policy_trace) + extra_trace + result.trace + execution.trace
     return _publish_result(
         result,
-        build_job_summary(snapshot, result, trace),
+        build_job_summary(snapshot, result, trace, execution),
+        execution,
     )
 
 

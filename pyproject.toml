@@ -32,6 +32,7 @@ py-modules = [
   "execution_trace",
   "feedback",
   "github_action",
+  "github_automerge",
   "github_pr",
   "judgment",
   "llm_judge",

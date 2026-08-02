@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import unittest
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from unittest.mock import patch
 
 import streamlit as st
@@ -39,6 +39,7 @@ def snapshot() -> GitHubPRSnapshot:
         base_sha="1111111111111111",
         head_ref="docs/operations",
         head_sha="2222222222222222",
+        head_repository="acme/clearledger",
         draft=False,
         additions=2,
         deletions=0,
@@ -56,7 +57,7 @@ def snapshot() -> GitHubPRSnapshot:
         ci_status="passed",
         diff_excerpt="+ safer wording",
         diff_complete=True,
-        fetched_at=datetime.now(timezone.utc),
+        fetched_at=datetime.now(UTC),
         trace=(),
     )
 
@@ -99,9 +100,7 @@ class StreamlitSmokeTests(unittest.TestCase):
     def test_live_decision_page_runs_the_full_pipeline(self) -> None:
         fetch_pr, fetch_text, get_judgment = self._mocked_live_pr()
         with fetch_pr, fetch_text, get_judgment:
-            app = AppTest.from_file(
-                "app_pages/live_decision.py", default_timeout=20
-            ).run()
+            app = AppTest.from_file("app_pages/live_decision.py", default_timeout=20).run()
             app.button(key="run_live_demo_gate").click().run()
         self.assertEqual(len(app.exception), 0)
         state_key = "live::acme/clearledger::7::2222222222222222"
@@ -124,9 +123,7 @@ class StreamlitSmokeTests(unittest.TestCase):
         def fetch_pr_by_number(url: str, token=None):
             calls.append(url)
             pr_number = int(url.rsplit("/", 1)[-1])
-            return snapshot().model_copy(
-                update={"pr_number": pr_number, "html_url": url}
-            )
+            return snapshot().model_copy(update={"pr_number": pr_number, "html_url": url})
 
         with (
             patch("github_pr.fetch_github_pr", side_effect=fetch_pr_by_number),
@@ -145,9 +142,7 @@ class StreamlitSmokeTests(unittest.TestCase):
             ),
             patch("engine.get_judgment", side_effect=_offline_judgment),
         ):
-            app = AppTest.from_file(
-                "app_pages/live_decision.py", default_timeout=20
-            ).run()
+            app = AppTest.from_file("app_pages/live_decision.py", default_timeout=20).run()
             self.assertEqual(len(app.exception), 0)
             self.assertTrue(calls[-1].endswith("/pull/1"))
 
@@ -156,13 +151,9 @@ class StreamlitSmokeTests(unittest.TestCase):
             self.assertTrue(calls[-1].endswith("/pull/5"))
 
     def test_system_evaluation_page_renders_without_exceptions(self) -> None:
-        app = AppTest.from_file(
-            "app_pages/system_evaluation.py", default_timeout=20
-        ).run()
+        app = AppTest.from_file("app_pages/system_evaluation.py", default_timeout=20).run()
         self.assertEqual(len(app.exception), 0)
-        self.assertEqual(
-            [title.value for title in app.title], ["System evaluation"]
-        )
+        self.assertEqual([title.value for title in app.title], ["System evaluation"])
 
 
 if __name__ == "__main__":

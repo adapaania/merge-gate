@@ -37,3 +37,4 @@ jobs:
           policy-path: .merge-gate/policy.toml
           ci-result: ${{ needs.tests.result }}
           anthropic-api-key: ${{ secrets.ANTHROPIC_API_KEY }}
+          execution-token: ${{ secrets.MERGE_GATE_EXECUTION_TOKEN }}

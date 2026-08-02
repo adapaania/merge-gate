@@ -30,6 +30,12 @@ inputs:
   anthropic-api-key:
     description: Provider key required for the live Claude risk judgment.
     required: true
+  execution-token:
+    description: >-
+      Optional GitHub App or fine-grained token used only to enable native
+      auto-merge after a verified candidate decision and policy opt-in.
+    required: false
+    default: ""
 
 outputs:
   action:
@@ -38,6 +44,12 @@ outputs:
   reason:
     description: Human-readable reason for the action.
     value: ${{ steps.merge-gate.outputs.reason }}
+  execution-status:
+    description: Auto-merge execution status such as disabled, enabled, draft, or failed.
+    value: ${{ steps.merge-gate.outputs.execution_status }}
+  execution-reason:
+    description: Human-readable explanation of the execution outcome.
+    value: ${{ steps.merge-gate.outputs.execution_reason }}
 
 runs:
   using: composite
@@ -71,4 +83,5 @@ runs:
         MERGE_GATE_ORG_POLICY_REF: ${{ inputs.org-policy-ref }}
         MERGE_GATE_ORG_POLICY_PATH: ${{ inputs.org-policy-path }}
         GITHUB_TOKEN: ${{ inputs.github-token }}
+        MERGE_GATE_EXECUTION_TOKEN: ${{ inputs.execution-token }}
         ANTHROPIC_API_KEY: ${{ inputs.anthropic-api-key }}

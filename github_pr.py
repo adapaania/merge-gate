@@ -5,7 +5,7 @@ from __future__ import annotations
 import base64
 import binascii
 import re
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from time import perf_counter
 from typing import Any, Literal
 from urllib.parse import quote, urlsplit
@@ -13,9 +13,8 @@ from urllib.parse import quote, urlsplit
 import httpx
 from pydantic import BaseModel, ConfigDict, Field
 
-from model import Decision
 from execution_trace import TraceStep
-
+from model import Decision
 
 API_ROOT = "https://api.github.com"
 API_VERSION = "2026-03-10"
@@ -67,6 +66,7 @@ class GitHubPRSnapshot(BaseModel):
     base_sha: str
     head_ref: str
     head_sha: str
+    head_repository: str
     draft: bool
     additions: int = Field(ge=0)
     deletions: int = Field(ge=0)
@@ -136,9 +136,7 @@ def _request_json(client: httpx.Client, path: str) -> Any:
             "GitHub denied the read request. Check token permissions or the API rate limit."
         )
     if not response.is_success:
-        raise GitHubFetchError(
-            f"GitHub returned HTTP {response.status_code} for a read request."
-        )
+        raise GitHubFetchError(f"GitHub returned HTTP {response.status_code} for a read request.")
     try:
         return response.json()
     except ValueError as exc:
@@ -231,10 +229,7 @@ def _build_diff_excerpt(
         )
     diff = "\n\n".join(sections)
     if len(diff) > MAX_DIFF_CHARACTERS:
-        diff = (
-            diff[:MAX_DIFF_CHARACTERS]
-            + "\n\n# diff excerpt truncated by Merge Gate"
-        )
+        diff = diff[:MAX_DIFF_CHARACTERS] + "\n\n# diff excerpt truncated by Merge Gate"
         complete = False
     return diff, complete
 
@@ -273,9 +268,7 @@ def _normalize_checks(
                     source="commit_status",
                     state=str(item.get("state", "unknown")),
                     details_url=(
-                        item.get("target_url")
-                        if isinstance(item.get("target_url"), str)
-                        else None
+                        item.get("target_url") if isinstance(item.get("target_url"), str) else None
                     ),
                 )
             )
@@ -326,7 +319,9 @@ def build_decision_from_github(snapshot: GitHubPRSnapshot) -> Decision:
         ci_passed=(
             True
             if snapshot.ci_status == "passed"
-            else False if snapshot.ci_status == "failed" else None
+            else False
+            if snapshot.ci_status == "failed"
+            else None
         ),
         reversible=None,
         touches_incident_code=None,
@@ -351,11 +346,7 @@ def fetch_github_text_file(
     if repository.count("/") != 1:
         raise ValueError("Repository must use owner/name format.")
     normalized_path = path.strip().lstrip("/")
-    if (
-        not normalized_path
-        or normalized_path.startswith("../")
-        or "/../" in normalized_path
-    ):
+    if not normalized_path or normalized_path.startswith("../") or "/../" in normalized_path:
         raise ValueError("Policy path must stay inside the target repository.")
 
     owner, repo = repository.split("/", 1)
@@ -442,9 +433,7 @@ def fetch_github_pr(
             if not isinstance(payload, list):
                 raise GitHubFetchError("GitHub returned malformed changed-file evidence.")
             raw_files.extend(payload)
-            if len(payload) < 100 or (
-                expected_files and len(raw_files) >= expected_files
-            ):
+            if len(payload) < 100 or (expected_files and len(raw_files) >= expected_files):
                 break
             page += 1
         files = _normalize_files(raw_files)
@@ -514,6 +503,7 @@ def fetch_github_pr(
         base_ref = str(pull["base"]["ref"])
         base_sha = str(pull["base"]["sha"])
         head_ref = str(pull["head"]["ref"])
+        head_repository = str(pull["head"]["repo"]["full_name"])
     except (KeyError, TypeError) as exc:
         raise GitHubFetchError("GitHub returned incomplete pull-request metadata.") from exc
 
@@ -527,6 +517,7 @@ def fetch_github_pr(
         base_sha=base_sha,
         head_ref=head_ref,
         head_sha=head_sha,
+        head_repository=head_repository,
         draft=bool(pull.get("draft", False)),
         additions=_as_int(pull.get("additions"), default=sum(file.additions for file in files)),
         deletions=_as_int(pull.get("deletions"), default=sum(file.deletions for file in files)),
@@ -535,6 +526,6 @@ def fetch_github_pr(
         ci_status=ci_status,
         diff_excerpt=diff_excerpt,
         diff_complete=diff_complete,
-        fetched_at=datetime.now(timezone.utc),
+        fetched_at=datetime.now(UTC),
         trace=tuple(trace),
     )

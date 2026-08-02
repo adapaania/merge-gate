@@ -24,6 +24,15 @@ from policies import GateAction, PolicyResult
 RULE_ID_PATTERN = r"^[A-Z][A-Z0-9_-]*-\d+$"
 
 
+class AutoMergePolicy(BaseModel):
+    """Explicit policy-owned authority for GitHub auto-merge execution."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    enabled: bool = False
+    merge_method: Literal["merge", "squash", "rebase"] = "squash"
+
+
 class PolicyRule(BaseModel):
     """One inspectable rule matched against PR paths or title terms."""
 
@@ -76,6 +85,7 @@ class PolicyDocument(BaseModel):
     version: int = Field(ge=1)
     default_action: GateAction = GateAction.HUMAN_REVIEW
     default_reason: str = Field(min_length=8)
+    execution: AutoMergePolicy = Field(default_factory=AutoMergePolicy)
     rules: tuple[PolicyRule, ...] = Field(min_length=1)
     exceptions: tuple[PolicyException, ...] = ()
 
@@ -93,9 +103,13 @@ class PolicyDocument(BaseModel):
         if len(exception_ids) != len(set(exception_ids)):
             raise ValueError("policy exception IDs must be unique")
         rule_ids = {rule.id for rule in self.rules}
-        unknown = sorted({
-            exception.rule_id for exception in self.exceptions if exception.rule_id not in rule_ids
-        })
+        unknown = sorted(
+            {
+                exception.rule_id
+                for exception in self.exceptions
+                if exception.rule_id not in rule_ids
+            }
+        )
         if unknown:
             raise ValueError(f"exceptions reference unknown rule IDs: {', '.join(unknown)}")
         return self
@@ -194,9 +208,7 @@ def match_rule(rule: PolicyRule, decision: Decision) -> tuple[str, ...]:
             evidence.extend(path for path, matched in path_hits.items() if matched)
 
     title = decision.title.lower()
-    matched_terms = [
-        term for term in rule.title_terms if term.strip() and term.lower() in title
-    ]
+    matched_terms = [term for term in rule.title_terms if term.strip() and term.lower() in title]
     evidence.extend(f"title:{term}" for term in matched_terms)
     return tuple(dict.fromkeys(evidence))
 
@@ -211,11 +223,7 @@ def _exception_is_active(
         return False
     if not exception.paths:
         return True
-    return any(
-        _path_matches(pattern, path)
-        for pattern in exception.paths
-        for path in evidence
-    )
+    return any(_path_matches(pattern, path) for pattern in exception.paths for path in evidence)
 
 
 _PRIORITY = {

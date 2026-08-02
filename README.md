@@ -4,11 +4,11 @@ Merge Gate is an evaluation-backed control plane for AI-authored pull requests.
 It recommends **auto-merge candidate**, **human review**, or **block** from
 observable evidence—not from how confident the coding agent sounds.
 
-The demo is advisory. It has no repository write access and never merges code.
-Its primary integration is an automatic GitHub PR check. The Streamlit
-dashboard opens a public proof PR by default so the same live evidence, project
-requirements, decision pipeline, and evaluation can be presented without
-pasting a URL.
+The decision path is advisory by default. A repository can explicitly opt into
+an execution phase that enables GitHub-native auto-merge only for a verified
+`auto_merge_candidate`; human-review, block, draft, cross-repository, stale-SHA,
+and incomplete-evidence cases never receive merge authority. The Streamlit
+dashboard remains read-only and exists to inspect the same evidence and policy.
 
 [Open the public dashboard](https://merge-gate-shzqgrdowxhuply6fhsykf.streamlit.app/)
 or follow the [live demo runbook](docs/live-demo.md). The longer
@@ -50,6 +50,9 @@ flowchart LR
     F --> J["Conservative composer"]
     I --> J
     J --> K["GitHub check summary + trace"]
+    K --> L{"Policy opted into execution?"}
+    L -->|"Verified candidate"| M["Enable GitHub native auto-merge"]
+    L -->|"Otherwise"| N["No merge write"]
 ```
 
 The target repository defines its requirements in
@@ -87,6 +90,8 @@ cause a safe fallback to human review.
 - read-only live GitHub PR ingestion for metadata, files, patches, check runs,
   and commit statuses
 - reusable composite GitHub Action triggered automatically by target PRs
+- opt-in GitHub-native auto-merge execution with separate write credentials,
+  same-repository enforcement, exact head/base SHA revalidation, and idempotency
 - project-owned TOML requirements fetched from the immutable base commit
 - an optional organization-baseline policy layer that a repository overlay
   can tighten but never weaken, with required reviewer teams, time-boxed
@@ -124,7 +129,9 @@ The intended experience requires no pasted URL:
 2. That repository runs its own tests.
 3. Its workflow invokes `adapaania/merge-gate@main`.
 4. Merge Gate reads the PR and the repository policy at the base SHA.
-5. The GitHub job summary shows the advisory result and execution trace.
+5. The GitHub job summary shows the decision and execution trace.
+6. If every configured policy layer opted in and the result is a verified
+   candidate, Merge Gate enables GitHub-native auto-merge.
 
 The connected example is the public
 [ClearLedger demo repository](https://github.com/adapaania/clearledger-demo).
@@ -139,11 +146,15 @@ also retained under `clearledger-demo-repo/`. The workflow calls:
     policy-path: .merge-gate/policy.toml
     ci-result: ${{ needs.tests.result }}
     anthropic-api-key: ${{ secrets.ANTHROPIC_API_KEY }}
+    execution-token: ${{ secrets.MERGE_GATE_EXECUTION_TOKEN }}
 ```
 
-The action uses read-only `contents`, `pull-requests`, `checks`, and `statuses`
-permissions. A block fails the action job; human review emits a warning; a
-candidate emits a notice. The connected repository must define an
+The `github-token` remains read-only. `execution-token` is a separate GitHub App
+or fine-grained credential with merge authority, and is never used during
+evidence collection or model judgment. If it is omitted, the action remains
+advisory even when a policy returns a candidate. A block fails the action job;
+human review emits a warning; a candidate either enables native auto-merge or
+reports why execution was skipped. The connected repository must define an
 `ANTHROPIC_API_KEY` Actions secret.
 
 A repository can also opt into a shared organization baseline by adding
@@ -171,7 +182,8 @@ Fetching and judging are deliberately separate:
 3. **Show tools and functions** displays a sanitized trace of those steps.
 
 The app identifies the exact head SHA it evaluated. It does not comment,
-approve, close, or merge the PR.
+approve, close, or merge the PR; only the GitHub Action's opt-in execution phase
+can enable auto-merge.
 
 A second page, **System evaluation**, reports aggregate policy metrics over
 the labeled fixture sets described below — no GitHub access, so it's safe to
@@ -268,6 +280,7 @@ rather than implying that the deterministic result is an AI-model result.
 streamlit_app.py          demo interface
 action.yml                reusable automatic GitHub Action
 github_action.py          PR-event runner and GitHub job summary
+github_automerge.py       opt-in, revalidated GitHub auto-merge execution
 project_policy.py         target-repository policy parser and evaluator
 engine.py                 end-to-end advisory composition
 policies.py               deterministic controls and baselines
@@ -301,7 +314,12 @@ docs/product-and-evaluation-design.md
   CODEOWNERS and branch-protection rules are not yet evaluated by the engine.
 - Reversibility and incident linkage are supplied evidence, not inferred.
 - The offline judge is deterministic and must not be presented as a live model.
-- The app recommends actions but does not implement GitHub branch protection.
+- Auto-merge relies on GitHub repository settings and branch protection; Merge
+  Gate does not create or audit those rules yet.
+- Write credentials in a `pull_request` workflow are suitable for the contained
+  same-repository demo. A production deployment should move execution to a
+  separately installed GitHub App or trusted post-check service so untrusted PR
+  workflow edits never receive a long-lived write token.
 - A production trial needs real historical PRs, blinded multi-reviewer labels,
-  calibration by risk tier, access control, observability, and shadow-mode use
-  before any merge authority is considered.
+  calibration by risk tier, access control, observability, and a completed
+  shadow-mode rollout before enabling merge authority.
