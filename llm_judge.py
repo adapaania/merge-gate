@@ -191,7 +191,6 @@ def live_judge(decision: Decision, policies: list[PolicyMatch]) -> JudgeResult:
         response = client.messages.create(
             model=model,
             max_tokens=1_000,
-            temperature=0,
             messages=[{"role": "user", "content": _prompt(decision, policies)}],
             output_config={
                 "format": {
