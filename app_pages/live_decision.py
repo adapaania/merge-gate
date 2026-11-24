@@ -57,7 +57,17 @@ def cached_github_project(
 
     _ = refresh_version
     token = os.getenv("GITHUB_TOKEN")
-    snapshot = fetch_github_pr(url, token=token)
+    try:
+        snapshot = fetch_github_pr(url, token=token)
+    except GitHubFetchError as exc:
+        # The public demo does not require authentication. Streamlit secrets can
+        # outlive or revoke a GitHub token, so retry public evidence without the
+        # stale credential instead of taking the whole demo offline.
+        if token and str(exc) == "GitHub rejected the configured credentials.":
+            token = None
+            snapshot = fetch_github_pr(url, token=None)
+        else:
+            raise
     policy_text, policy_trace = fetch_github_text_file(
         snapshot.repository,
         ref=snapshot.base_sha,

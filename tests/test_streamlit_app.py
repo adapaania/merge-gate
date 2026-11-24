@@ -10,6 +10,7 @@ from streamlit.testing.v1 import AppTest
 
 from execution_trace import TraceStep
 from github_pr import GitHubChangedFile, GitHubPRSnapshot
+from github_pr import GitHubFetchError
 from judgment import offline_demo_judge
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
@@ -155,6 +156,38 @@ class StreamlitSmokeTests(unittest.TestCase):
             app.number_input(key="live_pr_number").set_value(5).run()
             self.assertEqual(len(app.exception), 0)
             self.assertTrue(calls[-1].endswith("/pull/5"))
+
+    def test_invalid_streamlit_github_token_retries_public_demo_anonymously(self) -> None:
+        tokens: list[str | None] = []
+
+        def fetch_with_stale_token_fallback(url: str, token=None):
+            tokens.append(token)
+            if token:
+                raise GitHubFetchError("GitHub rejected the configured credentials.")
+            return snapshot()
+
+        with (
+            patch.dict("os.environ", {"GITHUB_TOKEN": "expired-token"}),
+            patch("github_pr.fetch_github_pr", side_effect=fetch_with_stale_token_fallback),
+            patch(
+                "github_pr.fetch_github_text_file",
+                return_value=(
+                    POLICY,
+                    TraceStep(
+                        kind="tool",
+                        phase="GitHub",
+                        name="get_file",
+                        summary="Read .merge-gate/policy.toml",
+                        duration_ms=1.0,
+                    ),
+                ),
+            ),
+            patch("engine.get_judgment", side_effect=_offline_judgment),
+        ):
+            app = AppTest.from_file(LIVE_DECISION_PAGE, default_timeout=20).run()
+
+        self.assertEqual(len(app.exception), 0)
+        self.assertEqual(tokens, ["expired-token", None])
 
     def test_system_evaluation_page_renders_without_exceptions(self) -> None:
         app = AppTest.from_file(SYSTEM_EVALUATION_PAGE, default_timeout=20).run()
