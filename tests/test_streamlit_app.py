@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import unittest
 from datetime import UTC, datetime
+from pathlib import Path
 from unittest.mock import patch
 
 import streamlit as st
@@ -10,6 +11,11 @@ from streamlit.testing.v1 import AppTest
 from execution_trace import TraceStep
 from github_pr import GitHubChangedFile, GitHubPRSnapshot
 from judgment import offline_demo_judge
+
+PROJECT_ROOT = Path(__file__).resolve().parent.parent
+STREAMLIT_APP = PROJECT_ROOT / "streamlit_app.py"
+LIVE_DECISION_PAGE = PROJECT_ROOT / "app_pages" / "live_decision.py"
+SYSTEM_EVALUATION_PAGE = PROJECT_ROOT / "app_pages" / "system_evaluation.py"
 
 POLICY = """
 [project]
@@ -92,7 +98,7 @@ class StreamlitSmokeTests(unittest.TestCase):
     def test_entry_point_renders_the_live_decision_page_by_default(self) -> None:
         fetch_pr, fetch_text, get_judgment = self._mocked_live_pr()
         with fetch_pr, fetch_text, get_judgment:
-            app = AppTest.from_file("streamlit_app.py", default_timeout=20).run()
+            app = AppTest.from_file(STREAMLIT_APP, default_timeout=20).run()
         self.assertEqual(len(app.exception), 0)
         self.assertEqual([title.value for title in app.title], ["Merge Gate"])
         self.assertIn("Run Merge Gate", [button.label for button in app.button])
@@ -100,7 +106,7 @@ class StreamlitSmokeTests(unittest.TestCase):
     def test_live_decision_page_runs_the_full_pipeline(self) -> None:
         fetch_pr, fetch_text, get_judgment = self._mocked_live_pr()
         with fetch_pr, fetch_text, get_judgment:
-            app = AppTest.from_file("app_pages/live_decision.py", default_timeout=20).run()
+            app = AppTest.from_file(LIVE_DECISION_PAGE, default_timeout=20).run()
             app.button(key="run_live_demo_gate").click().run()
         self.assertEqual(len(app.exception), 0)
         state_key = "live::acme/clearledger::7::2222222222222222"
@@ -142,7 +148,7 @@ class StreamlitSmokeTests(unittest.TestCase):
             ),
             patch("engine.get_judgment", side_effect=_offline_judgment),
         ):
-            app = AppTest.from_file("app_pages/live_decision.py", default_timeout=20).run()
+            app = AppTest.from_file(LIVE_DECISION_PAGE, default_timeout=20).run()
             self.assertEqual(len(app.exception), 0)
             self.assertTrue(calls[-1].endswith("/pull/1"))
 
@@ -151,7 +157,7 @@ class StreamlitSmokeTests(unittest.TestCase):
             self.assertTrue(calls[-1].endswith("/pull/5"))
 
     def test_system_evaluation_page_renders_without_exceptions(self) -> None:
-        app = AppTest.from_file("app_pages/system_evaluation.py", default_timeout=20).run()
+        app = AppTest.from_file(SYSTEM_EVALUATION_PAGE, default_timeout=20).run()
         self.assertEqual(len(app.exception), 0)
         self.assertEqual([title.value for title in app.title], ["System evaluation"])
 
